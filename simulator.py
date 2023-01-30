@@ -1,3 +1,5 @@
+# ALL UNITS IN BYTES AND MILLISECONDS
+
 import argparse
 import numpy as np
 from queue import PriorityQueue
@@ -7,6 +9,8 @@ class Node:
     def __init__(self, id):
         self.id = id
         self.adj = []
+        self.txns_seen = {}
+        
     
     def __init__(self, id, attr):
         self.adj = []
@@ -19,9 +23,24 @@ class Node:
             self.low  = attr['cpu']
         if 'adj' in attr:
             self.adj   = attr['adj']
+        self.txns_seen = set()
         
     def __str__(self):
         return f"Node {self.id} : Coins: {self.coins} Slow: {self.slow} Low: {self.low} Adj: {self.adj}"
+
+class Transaction:
+    id_gen = 0
+    def __init__(self, sender_id, receiver_id, coins):
+        self.id = Transaction.id_gen
+        self.sender_id = sender_id
+        self.receiver_id = receiver_id
+        self.coins = coins
+        self.size = 1000
+        Transaction.id_gen+=1
+        
+    def __str__(self):
+        return f"Txn {self.id}: {self.sender_id} pays {self.receiver_id} {self.coins} coins"
+
 
 @functools.total_ordering
 class Event:
@@ -38,24 +57,51 @@ class Event:
         raise NotImplementedError()
 
 class TransactionEvent(Event):
-    def __init__(self, time, id : int, sender : Node, receiver : Node) -> None:
+    def __init__(self, time, transaction : Transaction) -> None:
         super().__init__(time)
-        self.id = id
-        self.sender = sender
-        self.receiver = receiver
-
+        self.transaction = transaction
+        
     def trigger(self, eventQueue, nodes, args):
-        available_coins = self.sender.coins
-        c = np.random.randint(0, available_coins+1)
-        print(f"Time {self.time}, Txn {self.id}: {self.sender.id} pays {self.receiver.id} {c} coins")
-        self.sender.coins -= c
-        self.receiver.coins += c
+        nodes[self.transaction.sender_id].coins -= self.transaction.coins
+        nodes[self.transaction.receiver_id].coins += self.transaction.coins
+        print("Generating ", self.transaction)
+        eventQueue.put(BroadcastEvent(self.time, self.transaction,self.transaction.sender_id, nodes[self.transaction.sender_id].adj))
+        
         n = len(nodes)
         delay = np.random.exponential(args.mean_transaction_delay)
         new_receiver_idx = np.random.randint(0,n)
-        while new_receiver_idx == self.sender.id :
+        while new_receiver_idx == self.transaction.sender_id :
             new_receiver_idx = np.random.randint(0,n)
-        eventQueue.put(TransactionEvent(self.time+delay, np.random.randint(0, 10000000), self.sender, nodes[new_receiver_idx]))
+            
+        eventQueue.put(TransactionEvent(self.time+delay, Transaction(self.transaction.sender_id, new_receiver_idx,np.random.randint(0, nodes[self.transaction.sender_id].coins+1))))
+
+
+class BroadcastEvent(Event):
+    def __init__(self, time, transaction : Transaction, transmitter, neighbours) -> None:
+        super().__init__(time)
+        self.transaction = transaction
+        self.transmitter = transmitter
+        self.neighbours = neighbours
+
+    def trigger(self, eventQueue, nodes, args):
+        for neighbour in self.neighbours:
+            if self.transaction.id in nodes[neighbour].txns_seen:
+                # seen already, ignore
+                return
+            print("Transmitting from ", self.transmitter," to ", neighbour," that ", self.transaction)
+            
+            c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
+            total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.transaction.size/c + np.random.exponential(scale=96e3/c)
+            
+            nodes[neighbour].txns_seen.add(self.transaction.id)
+            
+            neighbours_neighbours = nodes[neighbour].adj.copy()
+            neighbours_neighbours.remove(self.transmitter)
+            
+            eventQueue.put(BroadcastEvent(self.time+total_delay, self.transaction,neighbour, neighbours_neighbours))
+            
+            
+
 
 def initialize_nodes(z0, z1, n):
     def checkConnected(nodes):
@@ -123,6 +169,7 @@ if __name__ == "__main__":
     z0 = args.z0
     z1 = args.z1
     n = args.n
+    args.prop_delay = np.random.uniform(10, 500, (n,n))
 
     nodes = initialize_nodes(z0,z1,n)
     eventQueue = PriorityQueue()
@@ -131,7 +178,7 @@ if __name__ == "__main__":
         receiver_idx = np.random.randint(0,n)
         while receiver_idx == i:
             receiver_idx = np.random.randint(0,n)
-        eventQueue.put(TransactionEvent(first_transaction_times[i], i, nodes[i], nodes[receiver_idx]))
+        eventQueue.put(TransactionEvent(first_transaction_times[i],Transaction(i, receiver_idx,np.random.randint(0, nodes[i].coins+1))))
 
     while not eventQueue.empty():
         eventQueue.get().trigger(eventQueue, nodes, args)
