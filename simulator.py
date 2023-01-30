@@ -30,12 +30,12 @@ class Node:
 
 class Transaction:
     id_gen = 0
-    def __init__(self, sender_id, receiver_id, coins):
+    def __init__(self, sender_id, receiver_id):
         self.id = Transaction.id_gen
         self.sender_id = sender_id
         self.receiver_id = receiver_id
-        self.coins = coins
         self.size = 1000
+        self.coins = -1
         Transaction.id_gen+=1
         
     def __str__(self):
@@ -62,6 +62,7 @@ class TransactionEvent(Event):
         self.transaction = transaction
         
     def trigger(self, eventQueue, nodes, args):
+        self.transaction.coins = np.random.randint(0, nodes[self.transaction.sender_id].coins+1)
         nodes[self.transaction.sender_id].coins -= self.transaction.coins
         nodes[self.transaction.receiver_id].coins += self.transaction.coins
         print("Generating ", self.transaction)
@@ -73,7 +74,7 @@ class TransactionEvent(Event):
         while new_receiver_idx == self.transaction.sender_id :
             new_receiver_idx = np.random.randint(0,n)
             
-        eventQueue.put(TransactionEvent(self.time+delay, Transaction(self.transaction.sender_id, new_receiver_idx,np.random.randint(0, nodes[self.transaction.sender_id].coins+1))))
+        eventQueue.put(TransactionEvent(self.time+delay, Transaction(self.transaction.sender_id, new_receiver_idx)))
 
 
 class BroadcastEvent(Event):
@@ -178,7 +179,7 @@ if __name__ == "__main__":
         receiver_idx = np.random.randint(0,n)
         while receiver_idx == i:
             receiver_idx = np.random.randint(0,n)
-        eventQueue.put(TransactionEvent(first_transaction_times[i],Transaction(i, receiver_idx,np.random.randint(0, nodes[i].coins+1))))
+        eventQueue.put(TransactionEvent(first_transaction_times[i],Transaction(i, receiver_idx)))
 
     while not eventQueue.empty():
         eventQueue.get().trigger(eventQueue, nodes, args)
