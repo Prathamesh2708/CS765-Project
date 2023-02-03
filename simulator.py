@@ -5,29 +5,6 @@ import numpy as np
 from queue import PriorityQueue
 import functools
 
-class Node:
-    def __init__(self, id):
-        self.id = id
-        self.adj = []
-        self.txns_seen = {}
-        
-    
-    def __init__(self, id, attr):
-        self.adj = []
-        self.id = id
-        if 'coins' in attr:
-            self.coins = attr['coins']
-        if 'slow' in attr:
-            self.slow  = attr['slow']
-        if 'cpu' in attr:
-            self.low  = attr['cpu']
-        if 'adj' in attr:
-            self.adj   = attr['adj']
-        self.txns_seen = set()
-        
-    def __str__(self):
-        return f"Node {self.id} : Coins: {self.coins} Slow: {self.slow} Low: {self.low} Adj: {self.adj}"
-
 class Transaction:
     id_gen = 0
     def __init__(self, sender_id, receiver_id):
@@ -40,6 +17,63 @@ class Transaction:
         
     def __str__(self):
         return f"Txn {self.id}: {self.sender_id} pays {self.receiver_id} {self.coins} coins"
+
+class Block:
+    id_gen = 0
+    def __init__(self, transaction_set : set, prev_block_id, node_state, depth):
+        self.id = Block.id_gen
+        self.transaction_set = transaction_set # set of Transaction
+        self.node_state = node_state
+        self.prev_block_id = prev_block_id
+        self.depth = depth
+        Block.id_gen += 1
+
+class Node:
+    def __init__(self, id):
+        self.id = id
+        self.adj = []
+        self.txns_seen = {}
+
+    def __init__(self, id, attr):
+        self.adj = []
+        self.id = id
+        if 'coins' in attr:
+            self.coins = attr['coins']
+        if 'slow' in attr:
+            self.slow  = attr['slow']
+        if 'cpu' in attr:
+            self.low  = attr['cpu']
+        if 'adj' in attr:
+            self.adj   = attr['adj']
+        self.txns_seen = set()
+        self.blockchain = {} # a dictionary mapping id:int to block:Block\
+        self.current_head = None
+
+    def initialize_blockchain(self, blockchain, head : Block):
+        self.blockchain = blockchain
+        self.current_head = head
+        
+    def _walk_blockchain(self, head : Block):
+        while head.id in self.blockchain:
+            yield self.blockchain[head.id]
+            head = self.blockchain[head.id].prev_block_id
+
+    def _verify(self, block : Block) -> bool:
+        # you can use _walk_blockchain to do the namesake. It is a generator.
+        # check the chain for double spends and also check if the block's parent is present at that node, also check depth of new block is correct, check node state of block
+        return NotImplementedError()
+
+    def insert_block(self, block : Block) -> bool:
+        if self._verify(block):
+            self.blockchain[block.id] = block
+            if block.depth > self.current_head.depth:
+                self.current_head = block
+            return True
+        else:
+            return False
+
+    def __str__(self):
+        return f"Node {self.id} : Coins: {self.coins} Slow: {self.slow} Low: {self.low} Adj: {self.adj}"
 
 
 @functools.total_ordering
@@ -104,7 +138,7 @@ class BroadcastEvent(Event):
             
 
 
-def initialize_nodes(z0, z1, n):
+def initialize_nodes(z0, z1, n, GenesisBlock):
     def checkConnected(nodes):
         vis = [False for n in nodes]
         def dfs(cur , par , vis):
@@ -156,6 +190,7 @@ def initialize_nodes(z0, z1, n):
             'cpu'  : ((low_cpus[i]/n) < (z1/100)),
             'adj' : nodes[i].adj
         })
+        nodes[i].initialize_blockchain({0 : GenesisBlock}, GenesisBlock)
         print(nodes[i])
     return nodes
 
@@ -171,8 +206,8 @@ if __name__ == "__main__":
     z1 = args.z1
     n = args.n
     args.prop_delay = np.random.uniform(10, 500, (n,n))
-
-    nodes = initialize_nodes(z0,z1,n)
+    GenesisBlock = Block(set(), -1, [100 for _ in range(n)], 0)
+    nodes = initialize_nodes(z0,z1,n,GenesisBlock)
     eventQueue = PriorityQueue()
     first_transaction_times = np.random.exponential(scale=args.mean_transaction_delay, size=n)
     for i in range(n):
