@@ -26,6 +26,7 @@ class Block:
         self.node_state = node_state
         self.prev_block_id = prev_block_id
         self.depth = depth
+        
         Block.id_gen += 1
 
 class Node:
@@ -52,24 +53,61 @@ class Node:
     def initialize_blockchain(self, blockchain, head : Block):
         self.blockchain = blockchain
         self.current_head = head
+        self.dangling_blocks = {}
+        self.trigger_ids = set()
+        self.time_arrived = {}
         
     def _walk_blockchain(self, head : Block):
+        head = self.blockchain[head.prev_block_id]
         while head.id in self.blockchain:
             yield self.blockchain[head.id]
-            head = self.blockchain[head.id].prev_block_id
+            head = self.blockchain[head.prev_block_id]
 
     def _verify(self, block : Block) -> bool:
         # you can use _walk_blockchain to do the namesake. It is a generator.
         # check the chain for double spends and also check if the block's parent is present at that node, also check depth of new block is correct, check node state of block
-        return NotImplementedError()
+        transaction_set = block.transaction_set
+        
+        if block.prev_block_id not in self.blockchain or block.depth-1!=self.blockchain[block.prev_block_id].depth:
+            return False 
+        
+        prev_state = self.blockchain[block.prev_block_id].node_state
+        for transaction in transaction_set:
+            prev_state[transaction.sender_id]-=transaction.coins
+            prev_state[transaction.receiver_id]+=transaction.coins
+        if block.node_state!=prev_state:
+            return False
+        
+        for old_block in self._walk_blockchain(block):
+            if transaction_set.intersection(old_block.transaction_set):
+                return False
+            
+        if old_block.id!=0:
+            return False
+        else:
+            return True
+            
 
     def insert_block(self, block : Block) -> bool:
+        if block.id not in self.time_arrived:
+            self.time_arrived[block.id] = CURRENT_TIME
         if self._verify(block):
             self.blockchain[block.id] = block
             if block.depth > self.current_head.depth:
                 self.current_head = block
+            if block.id in self.trigger_ids:
+                removal_set = set()
+                for orphan in self.dangling_blocks:
+                    if orphan.prev_block_id==block.id and self.insert_block(orphan):
+                        removal_set.add(orphan.id)
+                for done_id in removal_set:
+                    self.dangling_blocks.pop(done_id)
+                self.trigger_ids.remove(block.id)        
+                
             return True
         else:
+            self.dangling_blocks[block.id] = block
+            self.trigger_ids.add(block.prev_block_id)
             return False
 
     def __str__(self):
@@ -134,7 +172,6 @@ class BroadcastEvent(Event):
             neighbours_neighbours.remove(self.transmitter)
             
             eventQueue.put(BroadcastEvent(self.time+total_delay, self.transaction,neighbour, neighbours_neighbours))
-            
             
 
 
@@ -215,6 +252,9 @@ if __name__ == "__main__":
         while receiver_idx == i:
             receiver_idx = np.random.randint(0,n)
         eventQueue.put(TransactionEvent(first_transaction_times[i],Transaction(i, receiver_idx)))
-
+        
+    global CURRENT_TIME
     while not eventQueue.empty():
-        eventQueue.get().trigger(eventQueue, nodes, args)
+        event = eventQueue.get()
+        CURRENT_TIME =  event.time
+        event.trigger(eventQueue, nodes, args)
