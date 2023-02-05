@@ -6,23 +6,26 @@ from queue import PriorityQueue
 import functools
 
 mining_fee = 50
-blk_i_time =  100
+blk_i_time =  600
 
-np.random.seed(0)
-
+#All transactions belong to the Transaction class
 class Transaction:
     id_gen = 0
     def __init__(self, sender_id, receiver_id):
+        #initialise all relevant parameters of the transaction
         self.id = Transaction.id_gen
         self.sender_id = sender_id
         self.receiver_id = receiver_id
         self.size = 1000
         self.coins = -1
         Transaction.id_gen+=1
-        
+            
     def __str__(self):
         return f"Txn {self.id}: {self.sender_id} pays {self.receiver_id} {self.coins} coins"
 
+
+
+#A block of the block chain. Stores the id of previous block, the depth of this block and the transactions that this block contains
 class Block:
     id_gen = 0
     def __init__(self, transaction_set : set, prev_block_id, node_state, depth , creatorID ):
@@ -38,11 +41,13 @@ class Block:
     def __str__(self):
         return f"Block {self.id}: Creator {self.creator} parent: {self.prev_block_id}"
 
+
+#The node of our P2P network. Stores details like id,adjacency list, all the txns seen, and other specific details 
 class Node:
     def __init__(self, id):
         self.id = id
         self.adj = []
-        self.txns_seen = set()
+        self.txns_seen = {}
 
     def __init__(self, id, attr):
         self.adj = []
@@ -55,10 +60,11 @@ class Node:
             self.low  = attr['cpu']
         if 'adj' in attr:
             self.adj   = attr['adj']
-        self.txns_seen = set()
+        self.txns_seen = {}
         self.blockchain = {} # a dictionary mapping id:int to block:Block\
         self.current_head = None
 
+    #A general function, in case this were to be extended to handle nodes which may go down/ get up later on
     def initialize_blockchain(self, blockchain, head : Block):
         self.blockchain = blockchain
         self.current_head = head
@@ -66,6 +72,7 @@ class Node:
         self.trigger_ids = set()
         self.time_arrived = {}
         
+    #A generator of all blocks travelling from the last from to the Genesis block    
     def _walk_blockchain(self, headid):
         head = self.blockchain[headid]
         while head.id in self.blockchain:
@@ -75,23 +82,29 @@ class Node:
             else :
                 break
 
+    #Verifies a block for all its transactions. 
     def _verify(self, block : Block) -> bool:
-        # you can use _walk_blockchain to do the namesake. It is a generator.
-        # check the chain for double spends and also check if the block's parent is present at that node, also check depth of new block is correct, check node state of block
-        transaction_set = block.transaction_set
+        
+        #check if the block's parent is indeed in the blockchain, and that its depth is 1 more than its parent
         if block.prev_block_id not in self.blockchain or block.depth-1!=self.blockchain[block.prev_block_id].depth:
             return False 
         prev_state = self.blockchain[block.prev_block_id].node_state.copy()
        
+        #check if the transactions of the block are valid, given the validity of its parent.
+        transaction_set = block.transaction_set
         for transaction in transaction_set:
             prev_state[transaction.sender_id]-=transaction.coins
             prev_state[transaction.receiver_id]+=transaction.coins
         prev_state[block.creator]+=mining_fee
         if block.node_state!=prev_state:
             return False
+        
+        #check that the block does not hold transactions which are present in older blocks
         for old_block in self._walk_blockchain(block.prev_block_id):
             if transaction_set.intersection(old_block.transaction_set):
                 return False
+        #check that the last ancestor of the block is indeed the Genesis block  
+        #This is certainly guaranteed if its parent block was in the blockchain and the conditions were true for it  
         if old_block.id!=0:
             return False
         else:
@@ -102,7 +115,7 @@ class Node:
         if block.id not in self.time_arrived:
             self.time_arrived[block.id] = CURRENT_TIME
         if self._verify(block):
-            print(f"Node {self.id} accepts block {block.id}")
+            # print(f"Node {self.id} accepts block {block.id}")
             self.blockchain[block.id] = block
             if block.depth > self.current_head.depth:
                 self.current_head = block
@@ -125,7 +138,7 @@ class Node:
     def __str__(self):
         return f"Node {self.id} : Coins: {self.coins} Slow: {self.slow} Low: {self.low} Adj: {self.adj}"
 
-
+## A general class for all the events. The events will be scheduled with the help of a priority queue, arranged in the time of their scheduling
 @functools.total_ordering
 class Event:
     def __init__(self, time) -> None:
@@ -140,6 +153,8 @@ class Event:
     def trigger(self, eventQueue, nodes, args):
         raise NotImplementedError()
 
+
+##The Transaction event. This event creates all the new transactions as well as issues scheduling of the transactions to be broadcasted.
 class TransactionEvent(Event):
     def __init__(self, time, transaction : Transaction) -> None:
         super().__init__(time)
@@ -148,14 +163,12 @@ class TransactionEvent(Event):
     def trigger(self, eventQueue, nodes, args):
         
         ##Node can only transact how much money node has, where how much is determined by the state of the head of node's blockchain.
-        ##
         self.transaction.coins = np.random.randint(0, nodes[self.transaction.sender_id].current_head.node_state[self.transaction.sender_id]+1)
-        # nodes[self.transaction.sender_id].coins -= self.transaction.coins
-        # nodes[self.transaction.receiver_id].coins += self.transaction.coins
-        # print("Generating ", self.transaction)
         
-        ##Add the fact that node has seen its own transaction
-        
+        ##
+        # nodes[self.transaction.sender_id].txns_seen[self.transaction.id] = (self.transaction)
+        transaction_log.write(f"{CURRENT_TIME}:: Generating {self.transaction} \n")
+                
         ##Broadcast the transaction to all my peers right now.
         eventQueue.put(BroadcastTransactionEvent(self.time, self.transaction,self.transaction.sender_id, nodes[self.transaction.sender_id].adj))
         
@@ -174,27 +187,34 @@ class BroadcastTransactionEvent(Event):
         self.transaction = transaction
         self.transmitter = transmitter
         self.neighbours = neighbours
-
+        
+        
     def trigger(self, eventQueue, nodes, args):
-        if self.transaction not in nodes[self.transaction.sender_id].txns_seen:
-            nodes[self.transaction.sender_id].txns_seen.add(self.transaction)
+        
+        if self.transaction.id not in nodes[self.transmitter].txns_seen:
+            nodes[self.transmitter].txns_seen[self.transaction.id] = (self.transaction)
             for neighbour in self.neighbours:
-                if self.transaction in nodes[neighbour].txns_seen:
+                if self.transaction.id in nodes[neighbour].txns_seen:
                     # seen already, ignore
                     continue
-                # print("Transmitting from ", self.transmitter," to ", neighbour," that ", self.transaction)
+                transaction_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour}, that {self.transaction} \n")
                 
                 c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
+                
                 total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.transaction.size/c + np.random.exponential(scale=96e3/c)
                 
-                nodes[neighbour].txns_seen.add(self.transaction)
+                # nodes[neighbour].txns_seen.(self.transaction)
                 
                 neighbours_neighbours = nodes[neighbour].adj.copy()
                 neighbours_neighbours.remove(self.transmitter)
                 
-                eventQueue.put(BroadcastTransactionEvent(self.time+total_delay, self.transaction,neighbour, neighbours_neighbours))
+                ev = BroadcastTransactionEvent(self.time+total_delay, self.transaction,neighbour, neighbours_neighbours)
+                
+                
+                eventQueue.put(ev)
                 
 
+##Creates the event of creating new blocks by nodes of the network
 class BlockEvent(Event):
     def __init__(self, time, block_par : Block, creator) -> None:
         super().__init__(time)
@@ -202,39 +222,36 @@ class BlockEvent(Event):
         self.creator = creator
 
     def trigger(self, eventQueue, nodes, args):
-        ##Check if I can actually transmit a new block
+        ##Check if this node can actually transmit a new block
+        ##This check is done just by checking that the head on which this block was supposed to be mined is same as the head of the longest chain that I own
         if nodes[self.creator].current_head == self.block_par:
-            
             #set of txns_id
-            txns_can_add = nodes[self.creator].txns_seen
+            txns_can_add = set(nodes[self.creator].txns_seen.keys())
             
-            #remove those already seen
-            txns_can_add = txns_can_add - nodes[self.creator].current_head.transaction_set
+            #remove those transaction already seen inside the ancestors of this block
             for blk in nodes[self.creator]._walk_blockchain(nodes[self.creator].current_head.id):
-                txns_can_add = txns_can_add - blk.transaction_set
-            
-            #all txns in this set are possible to be added.
-            val_txns = list(txns_can_add)[:10]
+                txns_can_add = txns_can_add - set([n.id for n in blk.transaction_set])
+            #all txns in this set are now possible to be added.
+            val_txns = list(txns_can_add)[:1023]
             blk_txns = set()
             node_state = nodes[self.creator].current_head.node_state.copy()
-            for txn in val_txns:
+            for txn_id in val_txns:
+                txn = nodes[self.creator].txns_seen[txn_id]
+                ## Creator checks for the ordering of the transaction inside the block
                 if node_state[txn.sender_id] > txn.coins:
                     node_state[txn.receiver_id]+=txn.coins
                     node_state[txn.sender_id]-=txn.coins
                     blk_txns.add(txn)
             
+            ##Add the coinBase transaction
             node_state[self.creator]+=mining_fee
-            blk = Block(blk_txns ,nodes[self.creator].current_head.id , node_state ,  nodes[self.creator].current_head.depth+1, self.creator )
-                
-            ##Schedule transmiting this block now
-            print(blk)
-            eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
-            # nodes[self.creator].insert_block(blk)
+            blk = Block(blk_txns ,nodes[self.creator].current_head.id , node_state ,  nodes[self.creator].current_head.depth+1, self.creator ) 
+            block_log.write(f"{CURRENT_TIME}:: {blk}\n")
             
-        ##Schedule the next time this creator can make a new block.
-        
-    
-        
+            ##Schedule transmiting this block now
+            eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
+            
+        ##Schedule the next time this creator might make a new block.
         nxt_time = self.time + np.random.exponential(blk_i_time / nodes[self.creator].hash_pow)
         eventQueue.put(BlockEvent(nxt_time , nodes[self.creator].current_head , self.creator))
         
@@ -248,6 +265,7 @@ class BroadcastBlockEvent(Event):
         self.neighbours = neighbours
 
     def trigger(self, eventQueue , nodes , args):
+        
         if self.block.id not in nodes[self.transmitter].time_arrived:
             nodes[self.transmitter].insert_block(self.block)
             for neighbour in self.neighbours:
@@ -255,7 +273,7 @@ class BroadcastBlockEvent(Event):
                     # seen already, ignore
                     continue
                 
-                print("Transmitting from ", self.transmitter," to ", neighbour," the block ", self.block)
+                block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { self.block}\n")
                 
                 c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
                 total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.block.size/c + np.random.exponential(scale=96e3/c)
@@ -313,7 +331,8 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
     
     slow_cpus = np.random.permutation(n)
     low_cpus = np.random.permutation(n)
-    slow = n*z0 //100
+    slow = n*z1 //100
+    print("*"*10 , "INITIALISATION" , "*"*10)
     for i in range(0,n):
         nodes[i] = Node(i, {
             'coins' : 100,
@@ -323,10 +342,12 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
         })
         nodes[i].initialize_blockchain({0 : GenesisBlock}, GenesisBlock)
         print(nodes[i])
-        if nodes[i].slow:
-            nodes[i].hash_pow = 10/(10*(n-slow) + slow)
-        else:
+        if nodes[i].low:
             nodes[i].hash_pow = 1/(10*(n-slow) + slow)
+        else:
+            nodes[i].hash_pow = 10/(10*(n-slow) + slow)
+            
+    print("*"*10 , "END OF INITILISATION" , "*"*10)
     return nodes
 
 if __name__ == "__main__":
@@ -334,7 +355,7 @@ if __name__ == "__main__":
     parser.add_argument('--z0' , type = int, default= 0 )
     parser.add_argument('--z1' , type = int, default= 0)
     parser.add_argument('--n' , type = int ,  default= 10)
-    parser.add_argument('--mean_transaction_delay', type=float, default=1.0)
+    parser.add_argument('--mean_transaction_delay', type=float, default=2.0)
     args = parser.parse_args()   
     np.random.seed(0) 
     z0 = args.z0
@@ -343,6 +364,9 @@ if __name__ == "__main__":
     args.prop_delay = np.random.uniform(10, 500, (n,n))
     
     init_coins = 100
+    transaction_log = open('txns_log.txt','w+')
+    block_log = open('block_log.txt','w+')
+    
     
     GenesisBlock = Block(set(), -1, [init_coins]*n, 0, -1)
     nodes = initialize_nodes(z0,z1,n,GenesisBlock)
@@ -357,7 +381,8 @@ if __name__ == "__main__":
         eventQueue.put(BlockEvent(np.random.exponential(scale = blk_i_time / nodes[i].hash_pow) , nodes[i].current_head , i))
         
     global CURRENT_TIME
-    while not eventQueue.empty():
+    CURRENT_TIME = 0
+    while not eventQueue.empty() and CURRENT_TIME <9000:
         event = eventQueue.get()
         CURRENT_TIME =  event.time
         event.trigger(eventQueue, nodes, args)
