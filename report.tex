@@ -60,6 +60,8 @@ The simulation is then run by inserting various events (transactions and block e
 The events are processed in order of priority, with each event modifying the state of the network and potentially leading to the creation of new events.\\
 The simulation ends when there are no more events left in the priority queue. The logs of the transactions and blocks are recorded in the 'txns\_log.txt' and 'block\_log.txt' files.
 
+\includegraphics[width=10cm]{CodeFlow.png}
+
 \section{Objects- Transactions, Blocks and Nodes}
 
 The \verb|Transaction| class is used to store information related to transactions on the blockchain network. It has attributes such as ID, sender\_id, receiver\_id, size of transaction and the number of coins being sent
@@ -81,6 +83,15 @@ The \verb|BroadcastTransactionEvent| class broadcasts the transaction to all of 
 
 The \verb|BlockEvent| class generates a new block based on the block parameters provided, and triggers the process of validating the block and adding it to the local blockchain. If the block is valid, the node generates a \verb|BroadcastBlockEvent| to broadcast the new block to its neighbors.
 
+Depending on the event, here are the actions taken.
+
+\includegraphics[width=6cm]{Txn.png}
+\includegraphics[width=6cm]{Block.png}
+
+\rule[10px]{12cm}{1px}
+
+\includegraphics[width=6cm]{TxnBroadcast.png}
+\includegraphics[width=6cm]{BlockBroadcast.png}
 
 \section{Questions}
 
