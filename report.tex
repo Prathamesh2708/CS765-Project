@@ -61,5 +61,9 @@ Because the exponential distribution represents the difference between the two e
 
 \subsection{ Why is the mean of $d_{ij}$ inversely related to $c_{ij}$ ? Give justification for this choice.}
 
+The amount of time a packet has to spend at a node $i$ is proportional to the number of packets ahead of it, and inversely proportional to the rate at which node $i$ is dispatching them to node $j$.
+Since the latter is inversely related to link speed $c_{ij}$, hence $d_{ij} \propto \frac{1}{c_{ij}}$.
+
+
 
 \end{document}
