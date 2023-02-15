@@ -337,7 +337,7 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
     
     slow_cpus = np.random.permutation(n)
     low_cpus = np.random.permutation(n)
-    slow = n*z1 //100
+    low = n*z1 //100
     print("*"*10 , "INITIALISATION" , "*"*10)
     for i in range(0,n):
         nodes[i] = Node(i, {
@@ -349,21 +349,26 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
         nodes[i].initialize_blockchain({0 : GenesisBlock}, GenesisBlock)
         print(nodes[i])
         if nodes[i].low:
-            nodes[i].hash_pow = 1/(10*(n-slow) + slow)
+            nodes[i].hash_pow = 1/(10*(n-low) + low)
         else:
-            nodes[i].hash_pow = 10/(10*(n-slow) + slow)
+            nodes[i].hash_pow = 10/(10*(n-low) + low)
             
     print("*"*10 , "END OF INITILISATION" , "*"*10)
     return nodes
 
-def slow_node_blocks(block_chain , nodes):
-    slow_blocks = 0
-    for blk_id in block_chain:
-        if nodes[block_chain[blk_id].creator].slow:
-            slow_blocks += 1
+def low_node_blocks(block_chain , nodes):
+    low_blocks = 0
+    head = block_chain[nodes[0].current_head.id]
+    while head.id in block_chain:
+        if nodes[head.creator].low:
+            low_blocks+=1
+        if head.id != 0:
+            head = block_chain[head.prev_block_id]
+        else:
+            break
             
     # slow_blocks = sum(nodes[block_chain[blk_id].creator].slow for blk_id in block_chain)
-    return slow_blocks      
+    return low_blocks      
   
 def number_of_branches(edge_dict):
     in_edge_count = {}
@@ -402,7 +407,7 @@ def average_side_chain_length(edge_dict):
         if len(in_edge_dict[node]) > 1:
             side_chain_count += len(in_edge_dict[node])-1
             side_chain_sum += sum([_longest(i) for i in in_edge_dict[node]])+1-_longest(node)
-    return side_chain_sum/side_chain_count
+    return side_chain_sum/side_chain_count if side_chain_count>0 else 0
     
 def average_transactions_per_block(block_chain):
     total_txns_in_blocks = 0
@@ -412,21 +417,23 @@ def average_transactions_per_block(block_chain):
     return total_txns_in_blocks / len(block_chain)
   
 def len_of_chain(block_chain):
-    return max([block_chain[blk_id].depth for blk_id in block_chain])
+    
+    
+    return max([block_chain[blk_id].depth for blk_id in block_chain])+1
       
         
 ## neeche jo bhi functions legenge, like average length
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--z0' , type = int, default= 0 )
-    parser.add_argument('--z1' , type = int, default= 0)
+    parser.add_argument('--z0' , type = int, default= 20 )
+    parser.add_argument('--z1' , type = int, default= 20)
     parser.add_argument('--n' , type = int ,  default= 10)
     parser.add_argument('-m','--mean_transaction_delay', type=float, default=2.0)
     parser.add_argument('-b','--block_print', action='store_true' )
     parser.add_argument('-t','--transaction_print' , action='store_true')
     parser.add_argument('-i','--blk_i_time',type=float,default = 600.0)
-    parser.add_argument('-s','--simulate',type=int,default = 9000)
+    parser.add_argument('-s','--simulate',type=int,default = 15000)
 
     args = parser.parse_args()   
     np.random.seed(0) 
@@ -474,20 +481,13 @@ if __name__ == "__main__":
         "total forks": number_of_branches(edge_dict),
         "average branch length" : average_side_chain_length(edge_dict),
         "average transactions per block": average_transactions_per_block(final_block_chain),
-        "ratio of slow nodes to total blocks": slow_node_blocks(final_block_chain)/len_of_chain(final_block_chain),
+        "ratio of slow nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
         "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
     }
 
-    with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.i:.2f}","wb") as f:
+    with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}","wb") as f:
         pkl.dump(res,f)
     
-    #dumping start? yes, git push kar
-    
-
-    ## Total block count ?
-    # len(block_chain)'waise ye longest_blockhain nai hai Total chaiye na ration ke liye?
-    ##ratio total ka lenge ki jo blockchain me hai bas unka?
-    ## 
     '''    Parameter sets: 
     default
     [z_0, z_1, i] = [0.25, 0.25, 600]
