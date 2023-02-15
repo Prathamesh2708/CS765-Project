@@ -474,7 +474,7 @@ if __name__ == "__main__":
 
     print(edge_dict)
     graph = Graph(edge_dict , directed = True)
-    graph.plot(orientation= 'RL', shape = 'square')  
+    graph.plot(orientation= 'RL', shape = 'square', output_path=f"graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
     final_block_chain = nodes[0].blockchain
     
     res = {
