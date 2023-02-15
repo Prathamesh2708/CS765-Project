@@ -14,6 +14,7 @@ txn_size = 1000
 #All transactions belong to the Transaction class
 class Transaction:
     id_gen = 0
+    txn_dict = {}
     def __init__(self, sender_id, receiver_id):
         #initialise all relevant parameters of the transaction
         self.id = Transaction.id_gen
@@ -21,7 +22,9 @@ class Transaction:
         self.receiver_id = receiver_id
         self.size = txn_size
         self.coins = -1
+        Transaction.txn_dict[Transaction.id_gen] = self
         Transaction.id_gen+=1
+        
             
     def __str__(self):
         return f"Txn {self.id}: {self.sender_id} pays {self.receiver_id} {self.coins} coins"
@@ -31,6 +34,7 @@ class Transaction:
 #A block of the block chain. Stores the id of previous block, the depth of this block and the transactions that this block contains
 class Block:
     id_gen = 0
+    blocks_dict = {}
     def __init__(self, transaction_set : set, prev_block_id, node_state, depth , creatorID ):
         self.id = Block.id_gen
         self.transaction_set = transaction_set # set of Transaction
@@ -39,6 +43,7 @@ class Block:
         self.depth = depth
         self.creator = creatorID
         self.size = (len(transaction_set)+1)*txn_size
+        Block.blocks_dict[Block.id_gen] = self
         Block.id_gen += 1
     
     def __str__(self):
@@ -50,7 +55,7 @@ class Node:
     def __init__(self, id):
         self.id = id
         self.adj = []
-        self.txns_seen = {}
+        self.txns_seen = set()
 
     def __init__(self, id, attr):
         self.adj = []
@@ -63,25 +68,25 @@ class Node:
             self.low  = attr['cpu']
         if 'adj' in attr:
             self.adj   = attr['adj']
-        self.txns_seen = {}
-        self.blockchain = {} # a dictionary mapping id:int to block:Block\
+        self.txns_seen = set()
+        self.blockchain = [] # a dictionary mapping id:int to block:Block\
         self.current_head = None
 
     #A general function, in case this were to be extended to handle nodes which may go down/ get up later on
-    def initialize_blockchain(self, blockchain, head : Block):
+    def initialize_blockchain(self, blockchain, headId ):
         self.blockchain = blockchain
-        self.current_head = head
+        self.current_head = headId
         self.dangling_blocks = {}
         self.trigger_ids = set()
         self.time_arrived = {}
         
     #A generator of all blocks travelling from the last from to the Genesis block    
     def _walk_blockchain(self, headid):
-        head = self.blockchain[headid]
+        head = Block.blocks_dict[headid]
         while head.id in self.blockchain:
             yield head
             if head.prev_block_id != -1:
-                head = self.blockchain[head.prev_block_id]
+                head = Block.blocks_dict[head.prev_block_id]
             else :
                 break
 
@@ -89,13 +94,14 @@ class Node:
     def _verify(self, block : Block) -> bool:
         
         #check if the block's parent is indeed in the blockchain, and that its depth is 1 more than its parent
-        if block.prev_block_id not in self.blockchain or block.depth-1!=self.blockchain[block.prev_block_id].depth:
+        if block.prev_block_id not in self.blockchain or block.depth-1!=Block.blocks_dict[block.prev_block_id].depth:
             return False 
-        prev_state = self.blockchain[block.prev_block_id].node_state.copy()
+        prev_state = Block.blocks_dict[block.prev_block_id].node_state.copy()
        
         #check if the transactions of the block are valid, given the validity of its parent.
         transaction_set = block.transaction_set
-        for transaction in transaction_set:
+        for txn_id in transaction_set:
+            transaction = Transaction.txn_dict[txn_id]
             prev_state[transaction.sender_id]-=transaction.coins
             prev_state[transaction.receiver_id]+=transaction.coins
         prev_state[block.creator]+=mining_fee
@@ -119,7 +125,7 @@ class Node:
             self.time_arrived[block.id] = CURRENT_TIME
         if self._verify(block):
             # print(f"Node {self.id} accepts block {block.id}")
-            self.blockchain[block.id] = block
+            self.blockchain.append(block.id)
             if block.depth > self.current_head.depth:
                 self.current_head = block
           
@@ -134,7 +140,7 @@ class Node:
                 
             return True
         else:
-            self.dangling_blocks[block.id] = block
+            self.dangling_blocks.append(block.id)
             self.trigger_ids.add(block.prev_block_id)
             return False
 
@@ -194,9 +200,8 @@ class BroadcastTransactionEvent(Event):
         
         
     def trigger(self, eventQueue, nodes, args):
-        
         if self.transaction.id not in nodes[self.transmitter].txns_seen:
-            nodes[self.transmitter].txns_seen[self.transaction.id] = (self.transaction)
+            nodes[self.transmitter].txns_seen.add(self.transaction.id)
             for neighbour in self.neighbours:
                 if self.transaction.id in nodes[neighbour].txns_seen:
                     # seen already, ignore
@@ -231,22 +236,22 @@ class BlockEvent(Event):
         ##This check is done just by checking that the head on which this block was supposed to be mined is same as the head of the longest chain that I own
         if nodes[self.creator].current_head == self.block_par:
             #set of txns_id
-            txns_can_add = set(nodes[self.creator].txns_seen.keys())
+            txns_can_add = set(nodes[self.creator].txns_seen)
             
             #remove those transaction already seen inside the ancestors of this block
             for blk in nodes[self.creator]._walk_blockchain(nodes[self.creator].current_head.id):
-                txns_can_add = txns_can_add - set([n.id for n in blk.transaction_set])
+                txns_can_add = txns_can_add - blk.transaction_set
             #all txns in this set are now possible to be added.
             val_txns = list(txns_can_add)[:1023]
             blk_txns = set()
             node_state = nodes[self.creator].current_head.node_state.copy()
             for txn_id in val_txns:
-                txn = nodes[self.creator].txns_seen[txn_id]
+                txn = Transaction.txn_dict[txn_id]
                 ## Creator checks for the ordering of the transaction inside the block
                 if node_state[txn.sender_id] > txn.coins:
                     node_state[txn.receiver_id]+=txn.coins
                     node_state[txn.sender_id]-=txn.coins
-                    blk_txns.add(txn)
+                    blk_txns.add(txn_id)
             
             ##Add the coinBase transaction
             node_state[self.creator]+=mining_fee
@@ -346,7 +351,7 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
             'cpu'  : ((low_cpus[i]/n) < (z1/100)),
             'adj' : nodes[i].adj
         })
-        nodes[i].initialize_blockchain({0 : GenesisBlock}, GenesisBlock)
+        nodes[i].initialize_blockchain([0], GenesisBlock)
         print(nodes[i])
         if nodes[i].low:
             nodes[i].hash_pow = 1/(10*(n-low) + low)
@@ -358,12 +363,12 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
 
 def low_node_blocks(block_chain , nodes):
     low_blocks = 0
-    head = block_chain[nodes[0].current_head.id]
+    head = nodes[0].current_head
     while head.id in block_chain:
         if nodes[head.creator].low:
             low_blocks+=1
         if head.id != 0:
-            head = block_chain[head.prev_block_id]
+            head = Block.blocks_dict[head.prev_block_id]
         else:
             break
             
@@ -412,14 +417,13 @@ def average_side_chain_length(edge_dict):
 def average_transactions_per_block(block_chain):
     total_txns_in_blocks = 0
     for blk_id in block_chain:
-        total_txns_in_blocks+= block_chain[blk_id].size / txn_size
+        total_txns_in_blocks+= Block.blocks_dict[blk_id].size / txn_size
     
     return total_txns_in_blocks / len(block_chain)
   
 def len_of_chain(block_chain):
     
-    
-    return max([block_chain[blk_id].depth for blk_id in block_chain])+1
+    return max([Block.blocks_dict[blk_id].depth for blk_id in block_chain])+1
       
         
 ## neeche jo bhi functions legenge, like average length
@@ -468,11 +472,11 @@ if __name__ == "__main__":
         
     edge_dict = {0:[]}
     for blk_id in nodes[0].blockchain:
-        print(blk_id)
+        # print(blk_id)
         if blk_id !=0:
-            edge_dict[blk_id]= [nodes[0].blockchain[blk_id].prev_block_id]
+            edge_dict[blk_id]= [Block.blocks_dict[blk_id].prev_block_id]
 
-    print(edge_dict)
+    # print(edge_dict)
     graph = Graph(edge_dict , directed = True)
     graph.plot(orientation= 'RL', shape = 'square', output_path=f"graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
     final_block_chain = nodes[0].blockchain
@@ -481,7 +485,7 @@ if __name__ == "__main__":
         "total forks": number_of_branches(edge_dict),
         "average branch length" : average_side_chain_length(edge_dict),
         "average transactions per block": average_transactions_per_block(final_block_chain),
-        "ratio of slow nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
+        "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
         "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
     }
 
