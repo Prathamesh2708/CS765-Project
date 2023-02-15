@@ -426,14 +426,14 @@ def len_of_chain(block_chain):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--z0' , type = int, default= 20 )
+    parser.add_argument('--z0' , type = int, default= 0 )
     parser.add_argument('--z1' , type = int, default= 20)
     parser.add_argument('--n' , type = int ,  default= 10)
     parser.add_argument('-m','--mean_transaction_delay', type=float, default=2.0)
     parser.add_argument('-b','--block_print', action='store_true' )
     parser.add_argument('-t','--transaction_print' , action='store_true')
-    parser.add_argument('-i','--blk_i_time',type=float,default = 600.0)
-    parser.add_argument('-s','--simulate',type=int,default = 15000)
+    parser.add_argument('-i','--blk_i_time',type=float,default = 100.0)
+    parser.add_argument('-s','--simulate',type=int,default = 10000)
 
     args = parser.parse_args()   
     np.random.seed(0) 
