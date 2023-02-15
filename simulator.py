@@ -4,10 +4,13 @@ import argparse
 import numpy as np
 from queue import PriorityQueue
 import functools
-
+import pickle as pkl
+from dsplot.graph import Graph
+from dsplot.tree import *
 mining_fee = 50
-blk_i_time =  600
+txn_size = 1000
 
+# blk_i_time =  600
 #All transactions belong to the Transaction class
 class Transaction:
     id_gen = 0
@@ -16,7 +19,7 @@ class Transaction:
         self.id = Transaction.id_gen
         self.sender_id = sender_id
         self.receiver_id = receiver_id
-        self.size = 1000
+        self.size = txn_size
         self.coins = -1
         Transaction.id_gen+=1
             
@@ -35,7 +38,7 @@ class Block:
         self.prev_block_id = prev_block_id
         self.depth = depth
         self.creator = creatorID
-        self.size = (len(transaction_set)+1)*1000
+        self.size = (len(transaction_set)+1)*txn_size
         Block.id_gen += 1
     
     def __str__(self):
@@ -167,7 +170,8 @@ class TransactionEvent(Event):
         
         ##
         # nodes[self.transaction.sender_id].txns_seen[self.transaction.id] = (self.transaction)
-        transaction_log.write(f"{CURRENT_TIME}:: Generating {self.transaction} \n")
+        if args.transaction_print:
+            transaction_log.write(f"{CURRENT_TIME}:: Generating {self.transaction} \n")
                 
         ##Broadcast the transaction to all my peers right now.
         eventQueue.put(BroadcastTransactionEvent(self.time, self.transaction,self.transaction.sender_id, nodes[self.transaction.sender_id].adj))
@@ -197,8 +201,9 @@ class BroadcastTransactionEvent(Event):
                 if self.transaction.id in nodes[neighbour].txns_seen:
                     # seen already, ignore
                     continue
-                transaction_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour}, that {self.transaction} \n")
-                
+                if args.transaction_print:
+                    transaction_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour}, that {self.transaction} \n")
+
                 c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
                 
                 total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.transaction.size/c + np.random.exponential(scale=96e3/c)
@@ -246,13 +251,14 @@ class BlockEvent(Event):
             ##Add the coinBase transaction
             node_state[self.creator]+=mining_fee
             blk = Block(blk_txns ,nodes[self.creator].current_head.id , node_state ,  nodes[self.creator].current_head.depth+1, self.creator ) 
-            block_log.write(f"{CURRENT_TIME}:: {blk}\n")
+            if args.block_print:
+                block_log.write(f"{CURRENT_TIME}:: {blk}\n")
             
             ##Schedule transmiting this block now
             eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
             
         ##Schedule the next time this creator might make a new block.
-        nxt_time = self.time + np.random.exponential(blk_i_time / nodes[self.creator].hash_pow)
+        nxt_time = self.time + np.random.exponential(args.blk_i_time / nodes[self.creator].hash_pow)
         eventQueue.put(BlockEvent(nxt_time , nodes[self.creator].current_head , self.creator))
         
 
@@ -272,8 +278,8 @@ class BroadcastBlockEvent(Event):
                 if self.block.id in nodes[neighbour].blockchain or self.block.id in nodes[neighbour].dangling_blocks :
                     # seen already, ignore
                     continue
-                
-                block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { self.block}\n")
+                if args.block_print:
+                    block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { self.block}\n")
                 
                 c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
                 total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.block.size/c + np.random.exponential(scale=96e3/c)
@@ -350,12 +356,78 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
     print("*"*10 , "END OF INITILISATION" , "*"*10)
     return nodes
 
+def slow_node_blocks(block_chain , nodes):
+    slow_blocks = 0
+    for blk_id in block_chain:
+        if nodes[block_chain[blk_id].creator].slow:
+            slow_blocks += 1
+            
+    # slow_blocks = sum(nodes[block_chain[blk_id].creator].slow for blk_id in block_chain)
+    return slow_blocks      
+  
+def number_of_branches(edge_dict):
+    in_edge_count = {}
+    for key in edge_dict:
+        for node in edge_dict[key]:
+            if node not in in_edge_count:
+                in_edge_count[node] = 1
+            else:
+                in_edge_count[node] += 1
+    total = 0
+    for key in in_edge_count:
+        total += in_edge_count[key]-1
+    return total
+    
+def average_side_chain_length(edge_dict):
+    in_edge_dict = {}
+    for key in edge_dict:
+        for node in edge_dict[key]:
+            if node not in in_edge_dict:
+                in_edge_dict[node] = [key]
+            else:
+                in_edge_dict[node].append(key)
+    longest_chain_dict = {}
+    side_chain_sum = 0
+    side_chain_count = 0
+    def _longest(node):
+        if node in longest_chain_dict:
+            return longest_chain_dict[node]
+        else:
+            if node in in_edge_dict:
+                return 1+max([_longest(i) for i in in_edge_dict[node]])
+            else:
+                return 1
+    _ = _longest(0)
+    for node in in_edge_dict:
+        if len(in_edge_dict[node]) > 1:
+            side_chain_count += len(in_edge_dict[node])-1
+            side_chain_sum += sum([_longest(i) for i in in_edge_dict[node]])+1-_longest(node)
+    return side_chain_sum/side_chain_count
+    
+def average_transactions_per_block(block_chain):
+    total_txns_in_blocks = 0
+    for blk_id in block_chain:
+        total_txns_in_blocks+= block_chain[blk_id].size / txn_size
+    
+    return total_txns_in_blocks / len(block_chain)
+  
+def len_of_chain(block_chain):
+    return max([block_chain[blk_id].depth for blk_id in block_chain])
+      
+        
+## neeche jo bhi functions legenge, like average length
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--z0' , type = int, default= 0 )
     parser.add_argument('--z1' , type = int, default= 0)
     parser.add_argument('--n' , type = int ,  default= 10)
-    parser.add_argument('--mean_transaction_delay', type=float, default=2.0)
+    parser.add_argument('-m','--mean_transaction_delay', type=float, default=2.0)
+    parser.add_argument('-b','--block_print', action='store_true' )
+    parser.add_argument('-t','--transaction_print' , action='store_true')
+    parser.add_argument('-i','--blk_i_time',type=float,default = 600.0)
+    parser.add_argument('-s','--simulate',type=int,default = 9000)
+
     args = parser.parse_args()   
     np.random.seed(0) 
     z0 = args.z0
@@ -378,11 +450,56 @@ if __name__ == "__main__":
             receiver_idx = np.random.randint(0,n)
         eventQueue.put(TransactionEvent(first_transaction_times[i],Transaction(i, receiver_idx)))
         
-        eventQueue.put(BlockEvent(np.random.exponential(scale = blk_i_time / nodes[i].hash_pow) , nodes[i].current_head , i))
+        eventQueue.put(BlockEvent(np.random.exponential(scale = args.blk_i_time / nodes[i].hash_pow) , nodes[i].current_head , i))
         
     global CURRENT_TIME
     CURRENT_TIME = 0
-    while not eventQueue.empty() and CURRENT_TIME <9000:
+    while not eventQueue.empty() and CURRENT_TIME < args.simulate :
         event = eventQueue.get()
         CURRENT_TIME =  event.time
         event.trigger(eventQueue, nodes, args)
+        
+    edge_dict = {0:[]}
+    for blk_id in nodes[0].blockchain:
+        print(blk_id)
+        if blk_id !=0:
+            edge_dict[blk_id]= [nodes[0].blockchain[blk_id].prev_block_id]
+
+    print(edge_dict)
+    graph = Graph(edge_dict , directed = True)
+    graph.plot(orientation= 'RL', shape = 'square')  
+    final_block_chain = nodes[0].blockchain
+    
+    res = {
+        "total forks": number_of_branches(edge_dict),
+        "average branch length" : average_side_chain_length(edge_dict),
+        "average transactions per block": average_transactions_per_block(final_block_chain),
+        "ratio of slow nodes to total blocks": slow_node_blocks(final_block_chain)/len_of_chain(final_block_chain),
+        "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
+    }
+
+    with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.i:.2f}","wb") as f:
+        pkl.dump(res,f)
+    
+    #dumping start? yes, git push kar
+    
+
+    ## Total block count ?
+    # len(block_chain)'waise ye longest_blockhain nai hai Total chaiye na ration ke liye?
+    ##ratio total ka lenge ki jo blockchain me hai bas unka?
+    ## 
+    '''    Parameter sets: 
+    default
+    [z_0, z_1, i] = [0.25, 0.25, 600]
+    Keep s = 15000 for all simulations for consistency
+    z1 -> ratio of number of slow-node-blocks to total-blocks
+    z0 -> average length of branch
+    i -> number of forks
+    i -> number of transaction per block
+    '''
+
+    ## ratio of number of slow-node-blocks to total-blocks as a function of z_1
+    ## average length of branch as a function of z_0 (network delays)
+    ## number of forks vs interarrival time
+    ## ratio of blocks in longest-chain to total-blocks generated as a function of z0, z1, Tk
+    ## number of transaction per block as a ratio of inerarrival-time to transaction-time
