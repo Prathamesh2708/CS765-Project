@@ -1,0 +1,2 @@
+The attacker would not broadcast transactions and blocks from other nodes, if malicious.
+Need to handle that appropriately.
