@@ -74,6 +74,7 @@ class Node:
         if 'attacker' in attr and attr['attacker']:
             self.slow  = False
             self.honest = False
+            self.lead = 0
         self.txns_seen = set()
         self.blockchain = [] # a dictionary mapping id:int to block:Block\
         self.current_head = None
@@ -265,9 +266,10 @@ class BlockEvent(Event):
             if args.block_print:
                 block_log.write(f"{CURRENT_TIME}:: {blk}\n")
             
-            ##Schedule transmiting this block now
-            eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
-            
+            if nodes[self.creator].honest:
+                ##Schedule transmiting this block now
+                eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
+
         ##Schedule the next time this creator might make a new block.
         nxt_time = self.time + np.random.exponential(args.blk_i_time / nodes[self.creator].hash_pow)
         eventQueue.put(BlockEvent(nxt_time , nodes[self.creator].current_head , self.creator))
@@ -286,6 +288,20 @@ class BroadcastBlockEvent(Event):
         if self.block.id not in nodes[self.transmitter].time_arrived:
             nodes[self.transmitter].insert_block(self.block)
             for neighbour in self.neighbours:
+                
+                if not nodes[neighbour].honest:
+                    
+                    if nodes[neighbour].lead>2:
+                        # broadcast one
+                        nodes[neighbour].lead = nodes[neighbour].lead - 1
+                    elif nodes[neighbour].lead<=2:
+                        # broadcast all
+                        nodes[neighbour].lead = 0
+                        
+                    
+                    continue
+                
+                
                 if self.block.id in nodes[neighbour].blockchain or self.block.id in nodes[neighbour].dangling_blocks :
                     # seen already, ignore
                     continue
@@ -495,27 +511,27 @@ if __name__ == "__main__":
         CURRENT_TIME =  event.time
         event.trigger(eventQueue, nodes, args)
         
-    edge_dict = {0:[]}
-    for blk_id in nodes[0].blockchain:
-        # print(blk_id)
-        if blk_id !=0:
-            edge_dict[blk_id]= [Block.blocks_dict[blk_id].prev_block_id]
+    # edge_dict = {0:[]}
+    # for blk_id in nodes[0].blockchain:
+    #     # print(blk_id)
+    #     if blk_id !=0:
+    #         edge_dict[blk_id]= [Block.blocks_dict[blk_id].prev_block_id]
 
-    # print(edge_dict)
-    graph = Graph(edge_dict , directed = True)
-    graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
-    final_block_chain = nodes[0].blockchain
+    # # print(edge_dict)
+    # graph = Graph(edge_dict , directed = True)
+    # graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
+    # final_block_chain = nodes[0].blockchain
     
-    res = {
-        "total forks": number_of_branches(edge_dict),
-        "average branch length" : average_side_chain_length(edge_dict),
-        "average transactions per block": average_transactions_per_block(final_block_chain),
-        "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
-        "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
-    }
+    # res = {
+    #     "total forks": number_of_branches(edge_dict),
+    #     "average branch length" : average_side_chain_length(edge_dict),
+    #     "average transactions per block": average_transactions_per_block(final_block_chain),
+    #     "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
+    #     "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
+    # }
 
-    with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}","wb") as f:
-        pkl.dump(res,f)
+    # with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}","wb") as f:
+    #     pkl.dump(res,f)
     
     '''    Parameter sets: 
     default
