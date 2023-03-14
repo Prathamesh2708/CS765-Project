@@ -1,4 +1,5 @@
 # ALL UNITS IN BYTES AND MILLISECONDS
+# Node 0 is the malicious one, by default
 
 import argparse
 import numpy as np
@@ -54,12 +55,14 @@ class Block:
 class Node:
     def __init__(self, id):
         self.id = id
+        self.honest = True
         self.adj = []
         self.txns_seen = set()
 
     def __init__(self, id, attr):
         self.adj = []
         self.id = id
+        self.honest = True
         if 'coins' in attr:
             self.coins = attr['coins']
         if 'slow' in attr:
@@ -68,6 +71,9 @@ class Node:
             self.low  = attr['cpu']
         if 'adj' in attr:
             self.adj   = attr['adj']
+        if 'attacker' in attr and attr['attacker']:
+            self.slow  = False
+            self.honest = False
         self.txns_seen = set()
         self.blockchain = [] # a dictionary mapping id:int to block:Block\
         self.current_head = None
@@ -297,7 +303,7 @@ class BroadcastBlockEvent(Event):
 
 
 
-def initialize_nodes(z0, z1, n, GenesisBlock):
+def initialize_nodes(z0, z1, n, GenesisBlock, zeta, attacker_node = 0):
     def checkConnected(nodes):
         vis = [False for n in nodes]
         def dfs(cur , par , vis):
@@ -312,7 +318,7 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
         return True
     while True:
         nodes = [Node(i, {}) for i in range(0,n)]
-        degs = np.random.randint(low = 4 , high = 9 , size = n)
+        degs = np.random.randint(low = 4 , high = 8 , size = n)
         if np.sum(degs) % 2 == 1 or np.sum(degs) > n*(n-1)/2:
             continue
         for i in range(0,n):
@@ -340,6 +346,19 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
             continue
         break
     
+    assert(attacker_node in range(n))
+    
+    nodes[attacker_node].honest = False
+    
+    while len(nodes[attacker_node].adj) < min(zeta*n,n-1):
+        honest_node = np.random.randint(n)
+        if honest_node != attacker_node and honest_node not in nodes[attacker_node].adj:
+            nodes[attacker_node].adj.append(honest_node)
+            nodes[honest_node].adj.append(attacker_node)
+
+    for i in range(n):
+        nodes[i].adj.sort()
+    
     slow_cpus = np.random.permutation(n)
     low_cpus = np.random.permutation(n)
     low = n*z1 //100
@@ -349,7 +368,8 @@ def initialize_nodes(z0, z1, n, GenesisBlock):
             'coins' : 100,
             'slow' : ((slow_cpus[i]/n)<(z0/100)),
             'cpu'  : ((low_cpus[i]/n) < (z1/100)),
-            'adj' : nodes[i].adj
+            'adj' : nodes[i].adj,
+            'attacker' : i==attacker_node
         })
         nodes[i].initialize_blockchain([0], GenesisBlock)
         print(nodes[i])
@@ -430,10 +450,11 @@ def len_of_chain(block_chain):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--z0' , type = int, default= 0 )
+    parser.add_argument('--z0' , type = int, default= 50 )
     parser.add_argument('--z1' , type = int, default= 20)
-    parser.add_argument('--n' , type = int ,  default= 10)
-    parser.add_argument('-m','--mean_transaction_delay', type=float, default=2.0)
+    parser.add_argument('--n' , type = int ,  default= 100)
+    parser.add_argument('--zeta' , type = float ,  default= 0.25)
+    parser.add_argument('-m','--mean_transaction_delay', type=float, default=10.0)
     parser.add_argument('-b','--block_print', action='store_true' )
     parser.add_argument('-t','--transaction_print' , action='store_true')
     parser.add_argument('-i','--blk_i_time',type=float,default = 100.0)
@@ -444,6 +465,10 @@ if __name__ == "__main__":
     z0 = args.z0
     z1 = args.z1
     n = args.n
+    zeta = args.zeta
+    if(zeta<0 or zeta>1):
+        print("zeta must be between 0 and 1")
+        exit()
     args.prop_delay = np.random.uniform(10, 500, (n,n))
     
     init_coins = 100
@@ -452,7 +477,7 @@ if __name__ == "__main__":
     
     
     GenesisBlock = Block(set(), -1, [init_coins]*n, 0, -1)
-    nodes = initialize_nodes(z0,z1,n,GenesisBlock)
+    nodes = initialize_nodes(z0,z1,n,GenesisBlock, zeta, attacker_node = 0)
     eventQueue = PriorityQueue()
     first_transaction_times = np.random.exponential(scale=args.mean_transaction_delay, size=n)
     for i in range(n):
