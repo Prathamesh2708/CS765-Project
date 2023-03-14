@@ -8,6 +8,7 @@ import functools
 import pickle as pkl
 from dsplot.graph import Graph
 from dsplot.tree import *
+import copy
 mining_fee = 50
 txn_size = 1000
 
@@ -50,19 +51,16 @@ class Block:
     def __str__(self):
         return f"Block {self.id}: Creator {self.creator} parent: {self.prev_block_id}"
 
-
 #The node of our P2P network. Stores details like id,adjacency list, all the txns seen, and other specific details 
 class Node:
     def __init__(self, id):
         self.id = id
-        self.honest = True
         self.adj = []
         self.txns_seen = set()
 
     def __init__(self, id, attr):
         self.adj = []
         self.id = id
-        self.honest = True
         if 'coins' in attr:
             self.coins = attr['coins']
         if 'slow' in attr:
@@ -73,7 +71,6 @@ class Node:
             self.adj   = attr['adj']
         if 'attacker' in attr and attr['attacker']:
             self.slow  = False
-            self.honest = False
             self.lead = 0
         self.txns_seen = set()
         self.blockchain = [] # a dictionary mapping id:int to block:Block\
@@ -153,6 +150,112 @@ class Node:
 
     def __str__(self):
         return f"Node {self.id} : Coins: {self.coins} Slow: {self.slow} Low: {self.low} Adj: {self.adj}"
+
+class AttackerNode(Node):
+    def __init__(self, id):
+        super().__init__(id)
+        self.private_chain = []
+        self.num_rel = 0
+        self.highest_added_depth = 0
+
+    def __init__(self, id, attr):
+        super().__init__(id, attr)
+        self.private_chain = []
+        self.num_rel = 0
+        self.highest_added_depth = 0
+
+    def _verify_private(self, block : Block) -> bool:
+        
+        #check if the block's parent is indeed in the blockchain, and that its depth is 1 more than its parent
+        if block.prev_block_id not in self.blockchain+self.private_chain or block.depth-1!=Block.blocks_dict[block.prev_block_id].depth:
+            return False 
+        prev_state = Block.blocks_dict[block.prev_block_id].node_state.copy()
+       
+        #check if the transactions of the block are valid, given the validity of its parent.
+        transaction_set = block.transaction_set
+        for txn_id in transaction_set:
+            transaction = Transaction.txn_dict[txn_id]
+            prev_state[transaction.sender_id]-=transaction.coins
+            prev_state[transaction.receiver_id]+=transaction.coins
+        prev_state[block.creator]+=mining_fee
+        if block.node_state!=prev_state:
+            return False
+        
+        #check that the block does not hold transactions which are present in older blocks
+        for old_block in self._walk_blockchain(block.prev_block_id):
+            if transaction_set.intersection(old_block.transaction_set):
+                return False
+        #check that the last ancestor of the block is indeed the Genesis block  
+        #This is certainly guaranteed if its parent block was in the blockchain and the conditions were true for it  
+        if old_block.id!=0:
+            return False
+        else:
+            return True
+
+    def insert_private_block(self, block : Block) -> bool:
+        if block.id not in self.time_arrived:
+            self.time_arrived[block.id] = CURRENT_TIME
+        if self._verify_private(block):
+            # print(f"Node {self.id} accepts block {block.id}")
+            self.private_chain.append(block.id)
+            if block.depth > self.current_head.depth:
+                self.current_head = block
+            return True
+        else:
+            self.dangling_blocks.append(block.id)
+            self.trigger_ids.add(block.prev_block_id)
+            return False
+
+    def _policy(self, public_depth, private_depth):
+        # modify self.num_rel according to the policy
+        if public_depth >= self.highest_added_depth:
+            self.highest_added_depth = public_depth
+            delta = private_depth-public_depth
+            if delta>1:
+                self.num_rel = 1
+            elif delta==1:
+                self.num_rel = 2
+            elif delta==0:
+                self.num_rel = 1
+
+
+    def release(self):
+        release_blocks = []
+        for blk in self.private_chain:
+            if blk.depth <= self.current_head.depth - len(self.private_chain) + self.num_rel:
+                release_blocks.append(blk)
+        self.private_chain = list(set(self.private_chain)-set(release_blocks))
+        self.num_rel = 0
+        self.highest_added_depth = 0
+        return release_blocks
+
+
+    def insert_block(self, block: Block) -> bool:
+        if block.id not in self.time_arrived:
+            self.time_arrived[block.id] = CURRENT_TIME
+        if self._verify(block):
+            # print(f"Node {self.id} accepts block {block.id}")
+            self.blockchain.append(block.id)
+            if block.depth > self.current_head.depth:
+                self.current_head = block
+                self.private_chain = []
+            else:
+                self._policy(block.depth, self.private_chain)
+            if block.id in self.trigger_ids:
+                removal_set = set()
+                for orphan in self.dangling_blocks:
+                    if orphan.prev_block_id==block.id and self.insert_block(orphan):
+                        removal_set.add(orphan.id)
+                for done_id in removal_set:
+                    self.dangling_blocks.pop(done_id)
+                self.trigger_ids.remove(block.id)        
+                
+            return True
+        else:
+            self.dangling_blocks.append(block.id)
+            self.trigger_ids.add(block.prev_block_id)
+            return False
+
 
 ## A general class for all the events. The events will be scheduled with the help of a priority queue, arranged in the time of their scheduling
 @functools.total_ordering
@@ -241,6 +344,8 @@ class BlockEvent(Event):
     def trigger(self, eventQueue, nodes, args):
         ##Check if this node can actually transmit a new block
         ##This check is done just by checking that the head on which this block was supposed to be mined is same as the head of the longest chain that I own
+
+
         if nodes[self.creator].current_head == self.block_par:
             #set of txns_id
             txns_can_add = set(nodes[self.creator].txns_seen)
@@ -265,10 +370,7 @@ class BlockEvent(Event):
             blk = Block(blk_txns ,nodes[self.creator].current_head.id , node_state ,  nodes[self.creator].current_head.depth+1, self.creator ) 
             if args.block_print:
                 block_log.write(f"{CURRENT_TIME}:: {blk}\n")
-            
-            if nodes[self.creator].honest:
-                ##Schedule transmiting this block now
-                eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
+            eventQueue.put(BroadcastBlockEvent(self.time , blk , self.creator , nodes[self.creator].adj))
 
         ##Schedule the next time this creator might make a new block.
         nxt_time = self.time + np.random.exponential(args.blk_i_time / nodes[self.creator].hash_pow)
@@ -285,41 +387,52 @@ class BroadcastBlockEvent(Event):
 
     def trigger(self, eventQueue , nodes , args):
         
-        if self.block.id not in nodes[self.transmitter].time_arrived:
-            nodes[self.transmitter].insert_block(self.block)
-            for neighbour in self.neighbours:
-                
-                if not nodes[neighbour].honest:
+        if isinstance(nodes[self.transmitter], AttackerNode):
+            if self.block.id not in nodes[self.transmitter].time_arrived:
+                if self.block.creator == self.transmitter:
+                    nodes[self.transmitter].insert_private_block(self.block)
+                else:
+                    nodes[self.transmitter].insert_block(self.block)
+                    release_blocks = nodes[self.transmitter].release()
+                    for blk in release_blocks:
+                        for neighbour in self.neighbours:
+                            if blk.id in nodes[neighbour].blockchain or blk.id in nodes[neighbour].dangling_blocks :
+                                continue
+                            if args.block_print:
+                                block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { blk}\n")
+                            
+                            c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
+                            total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + blk.size/c + np.random.exponential(scale=96e3/c)
+                            
+                            
+                            neighbours_neighbours = nodes[neighbour].adj.copy()
+                            neighbours_neighbours.remove(self.transmitter)
+                            
+                            eventQueue.put(BroadcastBlockEvent(self.time+total_delay, blk,neighbour, neighbours_neighbours))
+        else:
+            if self.block.id not in nodes[self.transmitter].time_arrived:
+                nodes[self.transmitter].insert_block(self.block)
+                for neighbour in self.neighbours:
                     
-                    if nodes[neighbour].lead>2:
-                        # broadcast one
-                        nodes[neighbour].lead = nodes[neighbour].lead - 1
-                    elif nodes[neighbour].lead<=2:
-                        # broadcast all
-                        nodes[neighbour].lead = 0
-                        
+                    if self.block.id in nodes[neighbour].blockchain or self.block.id in nodes[neighbour].dangling_blocks :
+                        # seen already, ignore
+                        continue
+                    if args.block_print:
+                        block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { self.block}\n")
                     
-                    continue
-                
-                
-                if self.block.id in nodes[neighbour].blockchain or self.block.id in nodes[neighbour].dangling_blocks :
-                    # seen already, ignore
-                    continue
-                if args.block_print:
-                    block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { self.block}\n")
-                
-                c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
-                total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.block.size/c + np.random.exponential(scale=96e3/c)
-                
-                
-                neighbours_neighbours = nodes[neighbour].adj.copy()
-                neighbours_neighbours.remove(self.transmitter)
-                
-                eventQueue.put(BroadcastBlockEvent(self.time+total_delay, self.block,neighbour, neighbours_neighbours))
+                    c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
+                    total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + self.block.size/c + np.random.exponential(scale=96e3/c)
+                    
+                    
+                    neighbours_neighbours = nodes[neighbour].adj.copy()
+                    neighbours_neighbours.remove(self.transmitter)
+                    
+                    eventQueue.put(BroadcastBlockEvent(self.time+total_delay, self.block,neighbour, neighbours_neighbours))
 
 
 
 def initialize_nodes(z0, z1, n, GenesisBlock, zeta, attacker_node = 0):
+    assert(attacker_node in range(n))
     def checkConnected(nodes):
         vis = [False for n in nodes]
         def dfs(cur , par , vis):
@@ -333,7 +446,7 @@ def initialize_nodes(z0, z1, n, GenesisBlock, zeta, attacker_node = 0):
                 return False
         return True
     while True:
-        nodes = [Node(i, {}) for i in range(0,n)]
+        nodes = [AttackerNode(i, {}) if i==attacker_node else Node(i, {}) for i in range(0,n)]
         degs = np.random.randint(low = 4 , high = 8 , size = n)
         if np.sum(degs) % 2 == 1 or np.sum(degs) > n*(n-1)/2:
             continue
@@ -362,9 +475,6 @@ def initialize_nodes(z0, z1, n, GenesisBlock, zeta, attacker_node = 0):
             continue
         break
     
-    assert(attacker_node in range(n))
-    
-    nodes[attacker_node].honest = False
     
     while len(nodes[attacker_node].adj) < min(zeta*n,n-1):
         honest_node = np.random.randint(n)
