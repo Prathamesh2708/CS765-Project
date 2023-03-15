@@ -69,9 +69,6 @@ class Node:
             self.low  = attr['cpu']
         if 'adj' in attr:
             self.adj   = attr['adj']
-        if 'attacker' in attr and attr['attacker']:
-            self.slow  = False
-            self.lead = 0
         self.txns_seen = set()
         self.blockchain = [] # a dictionary mapping id:int to block:Block\
         self.current_head = None
@@ -157,12 +154,14 @@ class AttackerNode(Node):
         self.private_chain = []
         self.num_rel = 0
         self.highest_added_depth = 0
+        self.stubborn = False
 
     def __init__(self, id, attr):
         super().__init__(id, attr)
         self.private_chain = []
         self.num_rel = 0
         self.highest_added_depth = 0
+        self.stubborn = attr['stubborn']
 
     def _verify_private(self, block : Block) -> bool:
         
@@ -210,23 +209,24 @@ class AttackerNode(Node):
         # modify self.num_rel according to the policy
         if public_depth >= self.highest_added_depth:
             self.highest_added_depth = public_depth
-            delta = private_depth-public_depth
-            if delta>1:
-                self.num_rel = 1
-            elif delta==1:
-                self.num_rel = 2
-            elif delta==0:
-                self.num_rel = 1
+            if self.stubborn:
+                delta = private_depth-public_depth
+                if delta==1:
+                    self.num_rel = 1
+                else:
+                    self.num_rel = 0
+            else:
+                self.num_rel = 0
+            
 
 
     def release(self):
         release_blocks = []
         for blk in self.private_chain:
-            if blk.depth <= self.current_head.depth - len(self.private_chain) + self.num_rel:
+            if blk.depth <= self.highest_added_depth + self.num_rel:
                 release_blocks.append(blk)
         self.private_chain = list(set(self.private_chain)-set(release_blocks))
         self.num_rel = 0
-        self.highest_added_depth = 0
         return release_blocks
 
 
@@ -239,8 +239,9 @@ class AttackerNode(Node):
             if block.depth > self.current_head.depth:
                 self.current_head = block
                 self.private_chain = []
+                self.highest_added_depth = self.current_head.depth
             else:
-                self._policy(block.depth, self.private_chain)
+                self._policy(block.depth, self.current_head.depth)
             if block.id in self.trigger_ids:
                 removal_set = set()
                 for orphan in self.dangling_blocks:
@@ -255,6 +256,8 @@ class AttackerNode(Node):
             self.dangling_blocks.append(block.id)
             self.trigger_ids.add(block.prev_block_id)
             return False
+
+
 
 
 ## A general class for all the events. The events will be scheduled with the help of a priority queue, arranged in the time of their scheduling
@@ -431,7 +434,7 @@ class BroadcastBlockEvent(Event):
 
 
 
-def initialize_nodes(z0, z1, n, GenesisBlock, zeta, attacker_node = 0):
+def initialize_nodes(z0, z1, n, GenesisBlock, zeta, args,attacker_node = 0):
     assert(attacker_node in range(n))
     def checkConnected(nodes):
         vis = [False for n in nodes]
@@ -490,13 +493,22 @@ def initialize_nodes(z0, z1, n, GenesisBlock, zeta, attacker_node = 0):
     low = n*z1 //100
     print("*"*10 , "INITIALISATION" , "*"*10)
     for i in range(0,n):
-        nodes[i] = Node(i, {
-            'coins' : 100,
-            'slow' : ((slow_cpus[i]/n)<(z0/100)),
-            'cpu'  : ((low_cpus[i]/n) < (z1/100)),
-            'adj' : nodes[i].adj,
-            'attacker' : i==attacker_node
-        })
+        if i != attacker_node:
+            nodes[i] = Node(i, {
+                'coins' : 100,
+                'slow' : ((slow_cpus[i]/n)<(z0/100)),
+                'cpu'  : ((low_cpus[i]/n) < (z1/100)),
+                'adj' : nodes[i].adj
+            })
+        else:
+            nodes[i] = AttackerNode(i, {
+                'coins' : 100,
+                'slow' : ((slow_cpus[i]/n)<(z0/100)),
+                'cpu'  : ((low_cpus[i]/n) < (z1/100)),
+                'adj' : nodes[i].adj,
+                'stubborn' : args['stubborn']
+            })
+            
         nodes[i].initialize_blockchain([0], GenesisBlock)
         print(nodes[i])
         if nodes[i].low:
@@ -585,6 +597,8 @@ if __name__ == "__main__":
     parser.add_argument('-t','--transaction_print' , action='store_true')
     parser.add_argument('-i','--blk_i_time',type=float,default = 100.0)
     parser.add_argument('-s','--simulate',type=int,default = 10000)
+    parser.add_argument('-st','--stubborn',action='store_true')
+
 
     args = parser.parse_args()   
     np.random.seed(0) 
@@ -603,7 +617,7 @@ if __name__ == "__main__":
     
     
     GenesisBlock = Block(set(), -1, [init_coins]*n, 0, -1)
-    nodes = initialize_nodes(z0,z1,n,GenesisBlock, zeta, attacker_node = 0)
+    nodes = initialize_nodes(z0,z1,n,GenesisBlock, zeta, args,attacker_node = 0)
     eventQueue = PriorityQueue()
     first_transaction_times = np.random.exponential(scale=args.mean_transaction_delay, size=n)
     for i in range(n):
