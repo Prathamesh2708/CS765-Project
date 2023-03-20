@@ -77,7 +77,7 @@ class Node:
     def initialize_blockchain(self, blockchain, headId ):
         self.blockchain = blockchain
         self.current_head = headId
-        self.dangling_blocks = {}
+        self.dangling_blocks = []
         self.trigger_ids = set()
         self.time_arrived = {}
         
@@ -161,7 +161,10 @@ class AttackerNode(Node):
         self.private_chain = []
         self.num_rel = 0
         self.highest_added_depth = 0
-        self.stubborn = attr['stubborn']
+        if 'stubborn' in attr:
+            self.stubborn = attr['stubborn']
+        else:
+            self.stubborn = False
 
     def _verify_private(self, block : Block) -> bool:
         
@@ -179,7 +182,7 @@ class AttackerNode(Node):
         prev_state[block.creator]+=mining_fee
         if block.node_state!=prev_state:
             return False
-        
+        old_block = block
         #check that the block does not hold transactions which are present in older blocks
         for old_block in self._walk_blockchain(block.prev_block_id):
             if transaction_set.intersection(old_block.transaction_set):
@@ -223,7 +226,7 @@ class AttackerNode(Node):
     def release(self):
         release_blocks = []
         for blk in self.private_chain:
-            if blk.depth <= self.highest_added_depth + self.num_rel:
+            if Block.blocks_dict[blk].depth <= self.highest_added_depth + self.num_rel:
                 release_blocks.append(blk)
         self.private_chain = list(set(self.private_chain)-set(release_blocks))
         self.num_rel = 0
@@ -399,19 +402,19 @@ class BroadcastBlockEvent(Event):
                     release_blocks = nodes[self.transmitter].release()
                     for blk in release_blocks:
                         for neighbour in self.neighbours:
-                            if blk.id in nodes[neighbour].blockchain or blk.id in nodes[neighbour].dangling_blocks :
+                            if blk in nodes[neighbour].blockchain or blk in nodes[neighbour].dangling_blocks :
                                 continue
                             if args.block_print:
                                 block_log.write(f"{CURRENT_TIME}:: Transmitting from {self.transmitter} to {neighbour} the block { blk}\n")
                             
                             c = 5e6 if nodes[self.transmitter].slow or nodes[neighbour].slow else 1e8
-                            total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + blk.size/c + np.random.exponential(scale=96e3/c)
+                            total_delay = args.prop_delay[nodes[self.transmitter].id,nodes[neighbour].id] + Block.blocks_dict[blk].size/c + np.random.exponential(scale=96e3/c)
                             
                             
                             neighbours_neighbours = nodes[neighbour].adj.copy()
                             neighbours_neighbours.remove(self.transmitter)
                             
-                            eventQueue.put(BroadcastBlockEvent(self.time+total_delay, blk,neighbour, neighbours_neighbours))
+                            eventQueue.put(BroadcastBlockEvent(self.time+total_delay, Block.blocks_dict[blk],neighbour, neighbours_neighbours))
         else:
             if self.block.id not in nodes[self.transmitter].time_arrived:
                 nodes[self.transmitter].insert_block(self.block)
@@ -503,10 +506,10 @@ def initialize_nodes(z0, z1, n, GenesisBlock, zeta, args,attacker_node = 0):
         else:
             nodes[i] = AttackerNode(i, {
                 'coins' : 100,
-                'slow' : ((slow_cpus[i]/n)<(z0/100)),
-                'cpu'  : ((low_cpus[i]/n) < (z1/100)),
+                'slow' : False,
+                'cpu'  : False,
                 'adj' : nodes[i].adj,
-                'stubborn' : args['stubborn']
+                'stubborn' : args.stubborn
             })
             
         nodes[i].initialize_blockchain([0], GenesisBlock)
@@ -596,7 +599,7 @@ if __name__ == "__main__":
     parser.add_argument('-b','--block_print', action='store_true' )
     parser.add_argument('-t','--transaction_print' , action='store_true')
     parser.add_argument('-i','--blk_i_time',type=float,default = 100.0)
-    parser.add_argument('-s','--simulate',type=int,default = 10000)
+    parser.add_argument('-s','--simulate',type=int,default = 100000)
     parser.add_argument('-st','--stubborn',action='store_true')
 
 
@@ -635,27 +638,27 @@ if __name__ == "__main__":
         CURRENT_TIME =  event.time
         event.trigger(eventQueue, nodes, args)
         
-    # edge_dict = {0:[]}
-    # for blk_id in nodes[0].blockchain:
-    #     # print(blk_id)
-    #     if blk_id !=0:
-    #         edge_dict[blk_id]= [Block.blocks_dict[blk_id].prev_block_id]
+    edge_dict = {0:[]}
+    for blk_id in nodes[0].blockchain:
+        # print(blk_id)
+        if blk_id !=0:
+            edge_dict[blk_id]= [Block.blocks_dict[blk_id].prev_block_id]
 
-    # # print(edge_dict)
-    # graph = Graph(edge_dict , directed = True)
-    # graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
-    # final_block_chain = nodes[0].blockchain
+    # print(edge_dict)
+    graph = Graph(edge_dict , directed = True)
+    graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
+    final_block_chain = nodes[0].blockchain
     
-    # res = {
-    #     "total forks": number_of_branches(edge_dict),
-    #     "average branch length" : average_side_chain_length(edge_dict),
-    #     "average transactions per block": average_transactions_per_block(final_block_chain),
-    #     "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
-    #     "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
-    # }
+    res = {
+        "total forks": number_of_branches(edge_dict),
+        "average branch length" : average_side_chain_length(edge_dict),
+        "average transactions per block": average_transactions_per_block(final_block_chain),
+        "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
+        "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain)
+    }
 
-    # with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}","wb") as f:
-    #     pkl.dump(res,f)
+    with open(f"results/result_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}","wb") as f:
+        pkl.dump(res,f)
     
     '''    Parameter sets: 
     default
