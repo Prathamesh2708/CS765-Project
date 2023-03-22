@@ -133,10 +133,9 @@ class Node:
             if block.id in self.trigger_ids:
                 removal_set = set()
                 for orphan in self.dangling_blocks:
-                    if orphan.prev_block_id==block.id and self.insert_block(orphan):
-                        removal_set.add(orphan.id)
-                for done_id in removal_set:
-                    self.dangling_blocks.pop(done_id)
+                    if Block.blocks_dict[orphan].prev_block_id==block.id and self.insert_block(Block.blocks_dict[orphan]):
+                        removal_set.add(Block.blocks_dict[orphan].id)
+                self.dangling_blocks = list(set(self.dangling_blocks)-set(removal_set))
                 self.trigger_ids.remove(block.id)        
                 
             return True
@@ -165,6 +164,43 @@ class AttackerNode(Node):
             self.stubborn = attr['stubborn']
         else:
             self.stubborn = False
+
+    def _walk_blockchain(self, headid):
+        head = Block.blocks_dict[headid]
+        while head.id in self.blockchain+self.private_chain:
+            yield head
+            if head.prev_block_id != -1:
+                head = Block.blocks_dict[head.prev_block_id]
+            else :
+                break
+
+    def _verify(self, block : Block) -> bool:
+        
+        #check if the block's parent is indeed in the blockchain, and that its depth is 1 more than its parent
+        if block.prev_block_id not in self.blockchain or block.depth-1!=Block.blocks_dict[block.prev_block_id].depth:
+            return False 
+        prev_state = Block.blocks_dict[block.prev_block_id].node_state.copy()
+       
+        #check if the transactions of the block are valid, given the validity of its parent.
+        transaction_set = block.transaction_set
+        for txn_id in transaction_set:
+            transaction = Transaction.txn_dict[txn_id]
+            prev_state[transaction.sender_id]-=transaction.coins
+            prev_state[transaction.receiver_id]+=transaction.coins
+        prev_state[block.creator]+=mining_fee
+        if block.node_state!=prev_state:
+            return False
+        
+        #check that the block does not hold transactions which are present in older blocks
+        for old_block in self._walk_blockchain(block.prev_block_id):
+            if transaction_set.intersection(old_block.transaction_set):
+                return False
+        #check that the last ancestor of the block is indeed the Genesis block  
+        #This is certainly guaranteed if its parent block was in the blockchain and the conditions were true for it  
+        if old_block.id!=0:
+            return False
+        else:
+            return True
 
     def _verify_private(self, block : Block) -> bool:
         
@@ -195,8 +231,6 @@ class AttackerNode(Node):
             return True
 
     def insert_private_block(self, block : Block) -> bool:
-        if block.id not in self.time_arrived:
-            self.time_arrived[block.id] = CURRENT_TIME
         if self._verify_private(block):
             # print(f"Node {self.id} accepts block {block.id}")
             self.private_chain.append(block.id)
@@ -248,10 +282,10 @@ class AttackerNode(Node):
             if block.id in self.trigger_ids:
                 removal_set = set()
                 for orphan in self.dangling_blocks:
-                    if orphan.prev_block_id==block.id and self.insert_block(orphan):
-                        removal_set.add(orphan.id)
-                for done_id in removal_set:
-                    self.dangling_blocks.pop(done_id)
+                    print("orphan", orphan, Block.blocks_dict[orphan].prev_block_id, block.id)
+                    if Block.blocks_dict[orphan].prev_block_id==block.id and self.insert_block(Block.blocks_dict[orphan]):
+                        removal_set.add(Block.blocks_dict[orphan].id)
+                self.dangling_blocks = list(set(self.dangling_blocks)-set(removal_set))
                 self.trigger_ids.remove(block.id)        
                 
             return True
@@ -400,7 +434,9 @@ class BroadcastBlockEvent(Event):
                 else:
                     nodes[self.transmitter].insert_block(self.block)
                     release_blocks = nodes[self.transmitter].release()
+                    release_blocks.sort()
                     for blk in release_blocks:
+                        nodes[self.transmitter].insert_block(Block.blocks_dict[blk])
                         for neighbour in self.neighbours:
                             if blk in nodes[neighbour].blockchain or blk in nodes[neighbour].dangling_blocks :
                                 continue
@@ -646,7 +682,18 @@ if __name__ == "__main__":
 
     # print(edge_dict)
     graph = Graph(edge_dict , directed = True)
-    graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
+    graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph0_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
+
+    edge_dict = {0:[]}
+    for blk_id in nodes[4].blockchain:
+        # print(blk_id)
+        if blk_id !=0:
+            edge_dict[blk_id]= [Block.blocks_dict[blk_id].prev_block_id]
+
+    # print(edge_dict)
+    graph = Graph(edge_dict , directed = True)
+    graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph1_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
+
     final_block_chain = nodes[0].blockchain
     
     res = {
