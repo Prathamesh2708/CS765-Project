@@ -627,15 +627,26 @@ def len_of_chain(block_chain):
       
 def block_nodes(block_chain, node_num):
     
-    Block.blocks_dict[blk_id].depth
-    return 1
-        
+    depth_list = [Block.blocks_dict[blk_id].depth for blk_id in block_chain]
+    max_depth_block = block_chain[depth_list.index(max(depth_list))]
+    count = 0
+    while Block.blocks_dict[max_depth_block].prev_block_id!=0:
+        if(Block.blocks_dict[max_depth_block].creator == node_num):
+            count+=1
+        max_depth_block = Block.blocks_dict[max_depth_block].prev_block_id
+    
+    return count
+    
+    
+    
+    
+            
 ## neeche jo bhi functions legenge, like average length
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--z0' , type = int, default= 50 )
-    parser.add_argument('--z1' , type = int, default= 20)
+    parser.add_argument('--z1' , type = int, default= 50)
     parser.add_argument('--n' , type = int ,  default= 100)
     parser.add_argument('--zeta' , type = float ,  default= 0.25)
     parser.add_argument('-m','--mean_transaction_delay', type=float, default=10.0)
@@ -643,11 +654,13 @@ if __name__ == "__main__":
     parser.add_argument('-t','--transaction_print' , action='store_true')
     parser.add_argument('-i','--blk_i_time',type=float,default = 100.0)
     parser.add_argument('-s','--simulate',type=int,default = 10000)
+    parser.add_argument('-seed','--seed',type=int,default = 0)
     parser.add_argument('-st','--stubborn',action='store_true')
 
 
     args = parser.parse_args()   
-    np.random.seed(0) 
+    
+    np.random.seed(args.seed) 
     z0 = args.z0
     z1 = args.z1
     n = args.n
@@ -682,36 +695,36 @@ if __name__ == "__main__":
         event.trigger(eventQueue, nodes, args)
         
     for node_num in range(n):
-        edge_dict = {"0_-1":[]}
-        for blk_id in nodes[node_num].blockchain:
-            # print(blk_id)
-            if blk_id !=0:
-                edge_dict[str(blk_id)+"_"+str(Block.blocks_dict[blk_id].creator)]= [str(Block.blocks_dict[blk_id].prev_block_id)+"_"+str(Block.blocks_dict[Block.blocks_dict[blk_id].prev_block_id].creator)]
-        if isinstance(nodes[node_num], AttackerNode):
-            for blk_id in nodes[node_num].private_chain:
-                # print(blk_id)
-                if blk_id !=0:
-                    edge_dict[str(blk_id)+"_"+str(Block.blocks_dict[blk_id].creator)]= [str(Block.blocks_dict[blk_id].prev_block_id)+"_"+str(Block.blocks_dict[Block.blocks_dict[blk_id].prev_block_id].creator)]
+    #     edge_dict = {"0_-1":[]}
+    #     for blk_id in nodes[node_num].blockchain:
+    #         # print(blk_id)
+    #         if blk_id !=0:
+    #             edge_dict[str(blk_id)+"_"+str(Block.blocks_dict[blk_id].creator)]= [str(Block.blocks_dict[blk_id].prev_block_id)+"_"+str(Block.blocks_dict[Block.blocks_dict[blk_id].prev_block_id].creator)]
+    #     if isinstance(nodes[node_num], AttackerNode):
+    #         for blk_id in nodes[node_num].private_chain:
+    #             # print(blk_id)
+    #             if blk_id !=0:
+    #                 edge_dict[str(blk_id)+"_"+str(Block.blocks_dict[blk_id].creator)]= [str(Block.blocks_dict[blk_id].prev_block_id)+"_"+str(Block.blocks_dict[Block.blocks_dict[blk_id].prev_block_id].creator)]
 
-        # print(edge_dict)
-        graph = Graph(edge_dict , directed = True)
-        graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_{node_num}_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
+    #     graph = Graph(edge_dict , directed = True)
+    #     graph.plot(orientation= 'RL', shape = 'square', output_path=f"images/graph_{node_num}_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}.png")  
 
         if isinstance(nodes[node_num], AttackerNode):
-            final_block_chain = nodes[node_num].blockchain
+            final_block_chain = nodes[node_num].blockchain + nodes[node_num].private_chain
             
-            res = {
-                "total forks": number_of_branches(edge_dict),
-                "average branch length" : average_side_chain_length(edge_dict),
-                "average transactions per block": average_transactions_per_block(final_block_chain),
-                "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
-                "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain),
-                "ratio of adversary blocks in chain to total adversary blocks":block_nodes(final_block_chain,node_num)/nodes[node_num].num_blocks_gen
-            }
-            # print(res)
+            # res = {
+            #     "total forks": number_of_branches(edge_dict),
+            #     "average branch length" : average_side_chain_length(edge_dict),
+            #     "average transactions per block": average_transactions_per_block(final_block_chain),
+            #     "ratio of low nodes to total blocks": low_node_blocks(final_block_chain , nodes)/len_of_chain(final_block_chain),
+            #     "ratio of longest chain block to total blocks":len_of_chain(final_block_chain)/len(final_block_chain),
+            #     "ratio of adversary blocks in chain to total adversary blocks":block_nodes(final_block_chain,node_num)/nodes[node_num].num_blocks_gen
+            # }
+            
+            print((block_nodes(final_block_chain,node_num)/nodes[node_num].num_blocks_gen if nodes[node_num].num_blocks_gen!=0 else 0),",", len_of_chain(final_block_chain)/len(final_block_chain))
 
-            with open(f"results/result_{node_num}_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_i_{args.blk_i_time:.2f}","wb") as f:
-                pkl.dump(res,f)
+            # with open(f"results/result_{node_num}_z_0_{args.z0:.2f}_z_1_{args.z1:.2f}_zeta_{args.zeta:.2f}","wb") as f:
+            #     pkl.dump(res,f)
     
     
     

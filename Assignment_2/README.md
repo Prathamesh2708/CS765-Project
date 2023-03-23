@@ -5,7 +5,7 @@
 ## Running Instructions
 Run the code using 
 ```
-python3 simulator.py --z0 0 --z1 20 -i 150 --n 50 -s 6000 -m 100
+python3 simulator.py --z0 0 --z1 20 -i 150 --n 50 -s 6000 -m 100 --zeta 0.25
 ```
 where 
 * z0 : fraction of slow nodes
@@ -14,6 +14,7 @@ where
 * n : number of nodes
 * s : total simulation time
 * m : interarrival time of transactions
+* zeta : fraction of nodes adversary is connected to
 
 The code generates an image of the blockchain (of one of the nodes) in the images directory and outputs various parameters like number of forks in the results directory as a pickle. 
 
