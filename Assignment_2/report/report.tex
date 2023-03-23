@@ -65,7 +65,80 @@ The only difference between selfish and stubborn mining is a difference in the t
 
 \subsection{MPU Measurements}
 
+We have averaged our measurements over 10 runs of the simulation for different values of the input seeds.
 
+The results are as follows-
+\begin{center}
+    \begin{tabular}{|c|c|c|}
+        \hline
+        $MPU_{node_{adv}}$ & Selfish & Stubborn \\
+        \hline
+        0.25 & 0.075 &	0.295 \\
+        0.50 & 0.029 & 0.201 \\
+        0.75 & 0.200 & 0.267 \\
+        \hline
+    \end{tabular}
+\end{center}
+
+
+
+\begin{center}
+    \begin{tabular}{|c|c|c|}
+        \hline
+        $MPU_{node_{overall}}$ & Selfish & Stubborn \\
+        \hline
+        0.25 & 0.486 &	0.509 \\
+        0.50 & 0.526 & 0.531 \\
+        0.75 & 0.526 & 0.545 \\
+        \hline
+    \end{tabular}
+\end{center}
+
+
+We now perform the same calculations with the attacker having a lot more hashing power. For this particular case, 90\% of the other nodes have low processing power.
+
+\begin{center}
+    \begin{tabular}{|c|c|c|}
+        \hline
+        $MPU_{node_{adv}}$ & Selfish & Stubborn \\
+        \hline
+        0.25 & 0.443 &	0.642 \\
+        0.50 & 0.431 & 0.455 \\
+        0.75 & 0.352 & 0.535 \\
+        \hline
+    \end{tabular}
+\end{center}
+
+
+
+\begin{center}
+    \begin{tabular}{|c|c|c|}
+        \hline
+        $MPU_{node_{overall}}$ & Selfish & Stubborn \\
+        \hline
+        0.25 & 0.5 &	0.516 \\
+        0.50 & 0.522 & 0.532 \\
+        0.75 & 0.5 & 0.537 \\
+        \hline
+    \end{tabular}
+\end{center}
+
+We observe that almost all $MPU_{node_{adv}}$ values increase when we increase the mining power of the attacker. This aligns with expectation and the code also reinforces the idea.
+
+\subsection{Blockchain Plots}
+
+A sample plot is shown below. In the extreme case shown, for demonstration purposes, it is clear how the attacker has mined a a much longer private chain, though the honest nodes do not see much of it.
+
+\begin{center}
+    \includegraphics[width=12cm]{attacker.jpeg}\\
+    Attacker Node
+\end{center}
+
+
+\begin{center}
+    \includegraphics[width=6cm]{normal.jpeg}\\
+    Honest Node
+\end{center}
 
 
 
