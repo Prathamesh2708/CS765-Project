@@ -49,9 +49,22 @@ Vedang Asgaonkar}
 
 \section*{Introduction}
 
-Hello and Welcome to our CS765 Project part 2.
+Hello and Welcome to our CS765 Project part 2. This builds up on the Blockchain implementation that we developed in the First Assignment.
+
+We introduce adversaries in this part. We incorporate selfish mining and stubborn mining attacks. The report that follows will focus mainly on our implementation of the ideas and then discuss the observations and plots obtained.
 
 \section{Code Flow}
+
+We introduce a new \verb|AttackerNode| class which inherits from the \verb|Node| class. This class holds the private blocks, information about whether it is stubborn/selfish and the current public chain level.
+
+We introduce new functions to initialise and handle these variables specific to the \verb|AttackerNode| and modify the \verb|BroadcastBlockEvent| trigger function to depend on the node type.
+
+The only difference between selfish and stubborn mining is a difference in the transmitting policy upon receiving the block. This is captured in the \verb|_policy()| function.
+
+\section{Observation}
+
+\subsection{MPU Measurements}
+
 
 
 
