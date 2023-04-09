@@ -11,7 +11,7 @@ w3 = Web3(provider)
 print(w3.is_connected())
 
 #replace the address with your contract address (!very important)
-deployed_contract_address = '0x54d3A35472077e656BC20ef91Ba7a11f6599b72a'
+deployed_contract_address = '0x76d45D87b3b2D8b12490C1Ae2c91645a0B07552e'
 
 #path of the contract json file. edit it with your contract json file
 compiled_contract_path ="build/contracts/Payment.json"
@@ -38,7 +38,7 @@ print(w3.eth.get_transaction(txn_receipt_json))
 #Add your Code here
 
 n = 100
-m = 10
+m = 5
 p = 0.25
 gas_limit = 1000000
 
@@ -80,7 +80,7 @@ for txn in range(num_txns):
         txn-=1
 print(success_arr)
 
-with open('results.pkl','wb') as f:
+with open('results2.pkl','wb') as f:
     pkl.dump(success_arr,f)
 
 
