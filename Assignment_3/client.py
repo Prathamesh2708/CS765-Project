@@ -11,7 +11,7 @@ w3 = Web3(provider)
 print(w3.is_connected())
 
 #replace the address with your contract address (!very important)
-deployed_contract_address = '0xcf4AFc44737c95637cAEf36eDBcBD9191dFCeD7F'
+deployed_contract_address = '0x54d3A35472077e656BC20ef91Ba7a11f6599b72a'
 
 #path of the contract json file. edit it with your contract json file
 compiled_contract_path ="build/contracts/Payment.json"
@@ -38,8 +38,8 @@ print(w3.eth.get_transaction(txn_receipt_json))
 #Add your Code here
 
 n = 100
-m = 3
-p = 0.5
+m = 10
+p = 0.25
 gas_limit = 1000000
 
 power_graph = nx.powerlaw_cluster_graph(n,m,p)
@@ -54,7 +54,7 @@ adj_list = nx.to_numpy_array(power_graph)
 print(adj_list.shape)
 
 for i in range(1,n+1):
-    txn_receipt = contract.functions.registerUser(i,str(i)).transact({'from':w3.eth.accounts[0], 'gas':gas_limit})
+    txn_receipt = contract.functions.registerUser(i,str(i)).transact({'from':w3.eth.accounts[0]})
     txn_receipt_json = json.loads(w3.to_json(txn_receipt))
     print("Creating Node",i,"Hash", txn_receipt_json) # print transaction hash
     
@@ -63,19 +63,21 @@ for i in range(1,n+1):
         if adj_list[i-1][j-1]:
             mean = 10
             amount = round(np.random.exponential(mean))
-            txn_receipt = contract.functions.createAcc(i,j,amount).transact({'from':w3.eth.accounts[0], 'gas':gas_limit})
+            txn_receipt = contract.functions.createAcc(i,j,amount).transact({'from':w3.eth.accounts[0]})
             txn_receipt_json = json.loads(w3.to_json(txn_receipt))
             print("Creating Account",i,j,"Amount",amount,"Hash", txn_receipt_json) # print transaction hash
 
 num_txns = 1000
 success_arr = np.zeros(num_txns)
 for txn in range(num_txns):
-    i,j = np.random.choice(range(1,n+1),2,replace=False)
-    txn_receipt = contract.functions.sendAmount(int(i),int(j)).transact({'from':w3.eth.accounts[0], 'gas':gas_limit})
-    txn_receipt_json = json.loads(w3.to_json(txn_receipt))
-    print("Send Amount",i,j,"Hash",txn_receipt_json,"Status",contract.events.TxnStatus.get_logs()[0].args['status']) # print transaction hash
-    success_arr[txn] = contract.events.TxnStatus.get_logs()[0].args['status']
-
+    try:
+        i,j = np.random.choice(range(1,n+1),2,replace=False)
+        txn_receipt = contract.functions.sendAmount(int(i),int(j)).transact({'from':w3.eth.accounts[0]})
+        txn_receipt_json = json.loads(w3.to_json(txn_receipt))
+        print("Send Amount",i,j,"Hash",txn_receipt_json,"Status",contract.events.TxnStatus.get_logs()[0].args['status']) # print transaction hash
+        success_arr[txn] = contract.events.TxnStatus.get_logs()[0].args['status']
+    except:
+        txn-=1
 print(success_arr)
 
 with open('results.pkl','wb') as f:

@@ -44,7 +44,7 @@ contract Payment {
         queue[0] = userId1;
         visited[userId1] = true;
         parent[userId1] = 0;
-
+        bool break_out = false;
         uint head = 0;
         uint tail = 1;
 
@@ -54,14 +54,22 @@ contract Payment {
 
             for (uint i = 0; i < num_users; i++) {
                 uint neighbor = keys_list[i];
-                if (jointAccount[node][neighbor]+jointAccount[neighbor][node]>0 && !visited[neighbor]) {
+                if (!visited[neighbor] && jointAccount[node][neighbor]+jointAccount[neighbor][node]>0 ) {
                     visited[neighbor] = true;
                     parent[neighbor] = node;
                     queue[tail] = neighbor;
                     tail++;
+                    if(neighbor==userId2){
+                        break_out = true;
+                        break;
+                    }
                 }
             }
+            if(break_out){
+                break;
+            }
         }
+        delete queue;
 
         uint node1 = parent[userId2];
         uint node2 = userId2;
