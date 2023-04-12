@@ -80,6 +80,14 @@ for txn in range(num_txns):
         txn-=1
 print(success_arr)
 
+
+for i in range(1,n+1):
+    for j in range(i+1,n+1):
+        if adj_list[i-1][j-1]:
+            txn_receipt = contract.functions.closeAccount(i,j).transact({'from':w3.eth.accounts[0]})
+            txn_receipt_json = json.loads(w3.to_json(txn_receipt))
+            print("Closing Account",i,j,"Hash", txn_receipt_json) # print transaction hash
+
 with open('results2.pkl','wb') as f:
     pkl.dump(success_arr,f)
 

@@ -1,0 +1,71 @@
+\documentclass[a4paper,14pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{graphicx, array, blindtext}
+\usepackage[colorinlistoftodos]{todonotes}
+
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{amsthm}
+
+\usepackage{nameref}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{floatrow}
+\usepackage{cancel}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{verbatim}
+\usepackage[document]{ragged2e}
+
+\rhead{CS765 Assignment 3}
+\usepackage{subcaption}
+\usepackage{listings}
+
+
+\usepackage{hyperref}
+
+\begin{document}
+\centering{
+
+\title{\fontsize{150}{60}{CS765 Assignment 3}}
+
+\author{
+Prathamesh Pilkhane\\
+Shashwat Garg \\
+Vedang Asgaonkar}
+}
+
+\date{Spring 2023}
+\maketitle
+
+\justifying
+
+% \tableofcontents
+% \newpage
+
+\justifying
+
+\section*{Introduction}
+
+Hello and Welcome to our CS765 Assignment 3. Here we implement a Dapp using Solidity, Ganache and Truffle.
+
+\section{Code Flow}
+
+\verb|client.py| uses python library \verb|web3| to connect to the ganache server. It calls the respective functions which have been implemented in solidity.\\\\
+We use the python library \verb|networkx| to create a power-law degree distribution graph. It uses the Holme and Kim algorithm for growing graphs with powerlaw degree distribution.\\\\
+We adjust the gas limit so as to remove the gas limit exceeded errors, both in \verb|client.py| as well as \verb|Payment.sol|\\\\
+The remaining code in \verb|client.py| is simply just calling the required functions and storing the result values of the \verb|sendAmount| function.\\\\
+In \verb|Payment.sol|, we implement the required 4 functions. Except \verb|sendAmount|, all others are pretty simple functions. In \verb|sendAmount|, we just need to implement a BFS in solidity, so it just costs a lot more in gas payments.
+
+
+
+\section{Observation}
+
+\subsection{Success Rate}
+
+
+
+
+\end{document}
