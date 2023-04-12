@@ -65,7 +65,37 @@ In \verb|Payment.sol|, we implement the required 4 functions. Except \verb|sendA
 
 \subsection{Success Rate}
 
-
+We do not observe very strong trends, but across various runs, the probability of success seems to go down as time progresses.\\
+This can be attributed to the fact that we start from a very stable situation, and random transactions increase the randomness in the system.\\
+Initially, whenever path exists, a transaction can pass through. Later, since we only look at the shortest path, there might be a case that shortest path can not transfer any more coins in that direction.\\\\
+The intuition for the above is that even though there is no trend in the random sendAmount() calls, there are increasing number of situations possible where failure might occur, and thus, we expect the success rate to go down slightly.\\
+Of course, the simple solution is to settle the contract and start afresh. Or with people entering and exiting the graph, this would also prevent the graph from getting lopsided edges.\\
+As for the results, they are given below\\\\
+\begin{table}[h!]
+    \centering
+    \caption{Success rate across runs}
+    \label{tab:data}
+    \begin{tabular}{|c|c|c|c|}
+      \hline
+      Txns & 10 & 5 & 3 \\
+      \hline
+      100 & 95 & 90 & 82 \\
+      200 & 95 & 87 & 80 \\
+      300 & 83 & 79 & 73 \\
+      400 & 72 & 70 & 75 \\
+      500 & 87 & 81 & 62 \\
+      600 & 88 & 73 & 72 \\
+      700 & 91 & 66 & 73 \\
+      800 & 86 & 67 & 56 \\
+      900 & 83 & 66 & 60 \\
+      1000 & 84 & 75 & 65 \\
+      \hline
+    \end{tabular}
+\end{table}
+  
+\begin{center}
+    \includegraphics[width=10cm]{success_rate.jpeg}\\
+\end{center}
 
 
 \end{document}
