@@ -11,7 +11,7 @@ w3 = Web3(provider)
 print(w3.is_connected())
 
 #replace the address with your contract address (!very important)
-deployed_contract_address = '0x76d45D87b3b2D8b12490C1Ae2c91645a0B07552e'
+deployed_contract_address = '0xA375E215bAa75A1DB6D835b1B4c45E6076307933'
 
 #path of the contract json file. edit it with your contract json file
 compiled_contract_path ="build/contracts/Payment.json"
@@ -38,7 +38,7 @@ print(w3.eth.get_transaction(txn_receipt_json))
 #Add your Code here
 
 n = 100
-m = 5
+m = 3
 p = 0.25
 gas_limit = 1000000
 
@@ -88,7 +88,7 @@ for i in range(1,n+1):
             txn_receipt_json = json.loads(w3.to_json(txn_receipt))
             print("Closing Account",i,j,"Hash", txn_receipt_json) # print transaction hash
 
-with open('results2.pkl','wb') as f:
+with open('results3.pkl','wb') as f:
     pkl.dump(success_arr,f)
 
 
